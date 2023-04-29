@@ -12,19 +12,22 @@ This Python script downloads historical candle data from a cryptocurrency exchan
 
 ## Usage
 
-To use the script, simply run the `candledownloader.py` file in the command line and provide the desired arguments (see the script comments for more details on each argument).
+To use the script, modify the `base_symbols` and `quote_symbols` lists in `candledownloader.py` to include the trading pairs you want to download data for. Then, run the `candledownloader.py` file in your Python editor or IDE.
 
-For example, to download 1-hour candles for the BTC/USDT pair on Binance from January 1, 2015 to April 1, 2022 and save the output to a file called `btc_usdt_1h_2015-01-01_2022-04-01_binance.csv`, run the following command:
+For example, to download 1-hour candles for the BTC/USDT, ETH/USDT, and ADA/USDT pairs on Binance from January 1, 2015 to April 1, 2022 and save the output to CSV files, modify the `base_symbols` and `quote_symbols` lists as follows:
 
 ```
-python candledownloader.py --pair BTC/USDT --timeframe 1h --start_time 2015-01-01T00:00:00Z --end_time 2022-04-01T00:00:00Z
+base_symbols = ['BTC', 'ETH', 'ADA']
+quote_symbols = ['USDT']
 ```
+
+Then, run the `candledownloader.py` file in your Python editor or IDE.
 
 Note that some exchanges may not have data available for dates that far back. In that case, the script will download as much data as possible and skip any missing data.
 
-If you want to download all available historical data for a trading pair, simply set the `start_time` argument to the oldest date available on the exchange. For example, on Binance, the oldest available data is from August 17, 2017, so you could use `--start_time 2017-08-17T00:00:00Z` to download all available historical data.
+If you want to download all available historical data for a trading pair, modify the `start_time` argument to the oldest date available on the exchange. For example, on Binance, the oldest available data is from August 17, 2017, so you could use `start_time='2017-08-17T00:00:00Z'` to download all available historical data.
 
-The script will output progress updates in the command line as it downloads the candle data. The final output will be saved to a CSV file in the specified output directory with the specified filename.
+The script will output progress updates in the console as it downloads the candle data. The final output will be saved to a CSV file in the specified output directory with the specified filename.
 
 ## Output Format
 
