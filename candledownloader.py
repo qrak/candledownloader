@@ -5,7 +5,7 @@ import os
 
 
 class CandleDownloader:
-    def __init__(self, exchange_name='binance', pair_name='MATIC/USDT', timeframe='1h',
+    def __init__(self, exchange_name='binance', pair_name='MATIC/USDT', timeframe='1m',
                  start_time='2015-01-01T00:00:00Z', end_time=None, batch_size=1000,
                  output_directory='./csv_ohlcv', output_file=None):
         self.exchange = getattr(ccxt, exchange_name)(
@@ -56,7 +56,6 @@ class CandleDownloader:
         # Check if the file already exists
         try:
             df = pd.read_csv(self.output_file, usecols=[0], header=None, skiprows=1)
-
             self.start_time = int(df.iloc[-1, 0]) + (
                     self.exchange.parse_timeframe(self.timeframe) * 1000)
             print(f"Resuming from timestamp {self.start_time}...")
@@ -72,6 +71,7 @@ class CandleDownloader:
 
                 # Convert the fetched candles to a pandas dataframe
                 df = pd.DataFrame(candles, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+
                 if len(candles) == 0:
                     break
 
@@ -114,13 +114,18 @@ if __name__ == "__main__":
 
     # Choose exchange
     exchange_name = 'binance'
+    timeframe = '1m'
 
-    # Create a list of pair names
-    pair_names = ['BTC/USDT', 'MATIC/USDT', 'LTC/USDT', 'AVAX/USDT', 'LINK/USDT', 'ATOM/USDT', 'ETC/USDT', ]
+    # Create lists of base symbols and quote symbols
+    base_symbols = ['BTC', 'ETH', 'ADA', 'DOT', 'XRP', 'SOL', 'MATIC', 'LTC', 'AVAX', 'LINK', 'ATOM', 'ETC']
+    quote_symbols = ['USDT']
 
-    # Iterate over the pair names and download candles for each
-    for pair_name in pair_names:
-        print(f"Downloading candles for {pair_name}...")
-        candledownload = CandleDownloader(exchange_name=exchange_name, pair_name=pair_name)
-        candledownload.download_candles()
-        print(f"Finished downloading candles for {pair_name}\n")
+    # Iterate over the base symbols and quote symbols and download candles for each pair
+    for base_symbol in base_symbols:
+        for quote_symbol in quote_symbols:
+            pair_name = f"{base_symbol}/{quote_symbol}"
+            print(f"Downloading candles for {pair_name}...")
+            candledownload = CandleDownloader(exchange_name=exchange_name, pair_name=pair_name, timeframe=timeframe)
+            candledownload.download_candles()
+            print(f"Finished downloading candles for {pair_name}\n")
+
