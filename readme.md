@@ -4,7 +4,7 @@ This Python script downloads historical candle data from a cryptocurrency exchan
 
 ## Installation
 
-1. Clone the `candledownloader` repository to your local machine using `git clone https://github.com/<username>/candledownloader.git`.
+1. Clone the `candledownloader` repository to your local machine using `git clone https://github.com/qrak/candledownloader.git`.
 2. Navigate to the `candledownloader` directory.
 3. Create a new virtual environment for this project using `python -m venv env`.
 4. Activate the virtual environment using `source env/bin/activate`.
