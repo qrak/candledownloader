@@ -27,6 +27,8 @@ Note that some exchanges may not have data available for dates that far back. In
 
 If you want to download all available historical data for a trading pair, modify the `start_time` argument to the oldest date available on the exchange. For example, on Binance, the oldest available data is from August 17, 2017, so you could use `start_time='2017-08-17T00:00:00Z'` to download all available historical data.
 
+If you don't know exact date when trading started on the exchange, you could use for example `start_time='2010-01-01T00:00:00Z'`
+
 The script will output progress updates in the console as it downloads the candle data. The final output will be saved to a CSV file in the specified output directory with the specified filename.
 
 ## Output Format
