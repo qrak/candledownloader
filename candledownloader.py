@@ -5,7 +5,7 @@ import os
 
 
 class CandleDownloader:
-    def __init__(self, exchange_name='binance', pair_name='MATIC/USDT', timeframe='1m',
+    def __init__(self, exchange_name='binance', pair_name='MATIC/USDT', timeframe='1h',
                  start_time='2015-01-01T00:00:00Z', end_time=None, batch_size=1000,
                  output_directory='./csv_ohlcv', output_file=None):
         self.exchange = getattr(ccxt, exchange_name)(
@@ -34,6 +34,7 @@ class CandleDownloader:
             self.output_file = self.generate_output_filename()
 
     def generate_output_filename(self):
+        os.makedirs(self.output_directory, exist_ok=True)
         symbol_base = self.pair_name.split('/')[0]
         symbol_quote = self.pair_name.split('/')[1]
         start_date = self.start_time.split('T')[0]
@@ -55,6 +56,7 @@ class CandleDownloader:
         # Check if the file already exists
         try:
             df = pd.read_csv(self.output_file, usecols=[0], header=None, skiprows=1)
+
             self.start_time = int(df.iloc[-1, 0]) + (
                     self.exchange.parse_timeframe(self.timeframe) * 1000)
             print(f"Resuming from timestamp {self.start_time}...")
@@ -68,20 +70,16 @@ class CandleDownloader:
                 candles = self.exchange.fetch_ohlcv(self.pair_name, self.timeframe, since=self.start_time,
                                                     limit=self.batch_size)
 
+                # Convert the fetched candles to a pandas dataframe
+                df = pd.DataFrame(candles, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
                 if len(candles) == 0:
                     break
 
-                # Convert the fetched candles to a pandas dataframe
-                df = pd.DataFrame(candles, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
                 # Append the dataframe to the in-memory buffer
                 self.buffer.append(df)
 
                 # Update the start time for the next request
                 self.start_time = candles[-1][0] + self.exchange.parse_timeframe(self.timeframe) * 1000
-
-                # Check if the end time has been reached
-                if self.end_time is not None and self.start_time >= self.exchange.parse8601(self.end_time):
-                    break
 
                 # Update progress message
                 self.total_candles += len(df)
@@ -94,8 +92,11 @@ class CandleDownloader:
                 # Clear the buffer
                 self.buffer = []
 
+            except (ccxt.RateLimitExceeded, ccxt.DDoSProtection) as e:
+                print(f"Rate limit exceeded: {e}. Retrying in 60 seconds...")
+                time.sleep(60)
             except ccxt.BaseError as e:
-                print(f"Exception occurred: {e}")
+                print(f"Exception occurred: {e}. Retrying in 60 seconds...")
                 time.sleep(60)
 
                 # Write the remaining data in the buffer to the output file
@@ -115,7 +116,7 @@ if __name__ == "__main__":
     exchange_name = 'binance'
 
     # Create a list of pair names
-    pair_names = ['MATIC/USDT', 'LTC/USDT', 'AVAX/USDT', 'LINK/USDT', 'ATOM/USDT', 'ETC/USDT', ]
+    pair_names = ['BTC/USDT', 'MATIC/USDT', 'LTC/USDT', 'AVAX/USDT', 'LINK/USDT', 'ATOM/USDT', 'ETC/USDT', ]
 
     # Iterate over the pair names and download candles for each
     for pair_name in pair_names:
