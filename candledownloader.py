@@ -5,7 +5,7 @@ import os
 
 
 class CandleDownloader:
-    def __init__(self, exchange_name='binance', pair_name='MATIC/USDT', timeframe='1m',
+    def __init__(self, exchange_name='binance', pair_name='BTC/USDT', timeframe='5m',
                  start_time='2015-01-01T00:00:00Z', end_time=None, batch_size=1000,
                  output_directory='./csv_ohlcv', output_file=None):
         self.exchange = getattr(ccxt, exchange_name)(
@@ -84,7 +84,7 @@ class CandleDownloader:
                 # Update progress message
                 self.total_candles += len(df)
                 self.total_batches += 1
-                print(f"Downloaded {self.total_candles} candles in {self.total_batches} batches...")
+                print(f"Downloaded {self.total_candles} candles for {self.pair_name}, timeframe: {self.timeframe} in {self.total_batches} batches...")
 
                 # Write the accumulated data to the output file
                 self.write_to_output_file(df)
@@ -114,7 +114,7 @@ if __name__ == "__main__":
 
     # Choose exchange
     exchange_name = 'binance'
-    timeframe = '1m'
+    timeframe = '5m'
 
     # Create lists of base symbols and quote symbols
     base_symbols = ['BTC', 'ETH', 'ADA', 'DOT', 'XRP', 'SOL', 'MATIC', 'LTC', 'AVAX', 'LINK', 'ATOM', 'ETC']
@@ -124,7 +124,7 @@ if __name__ == "__main__":
     for base_symbol in base_symbols:
         for quote_symbol in quote_symbols:
             pair_name = f"{base_symbol}/{quote_symbol}"
-            print(f"Downloading candles for {pair_name}...")
+            print(f"Downloading candles for {pair_name}... timeframe: {timeframe}")
             candledownload = CandleDownloader(exchange_name=exchange_name, pair_name=pair_name, timeframe=timeframe)
             candledownload.download_candles()
             print(f"Finished downloading candles for {pair_name}\n")
