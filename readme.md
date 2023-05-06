@@ -12,7 +12,7 @@ This Python script downloads historical candle data from a cryptocurrency exchan
 
 ## Usage
 
-To use the script, modify the `base_symbols` and `quote_symbols` lists in `candledownloader.py` to include the trading pairs you want to download data for. Then, run the `candledownloader.py` file in your Python editor or IDE.
+To use the script, modify the `base_symbols` and `quote_symbols` lists in `main.py` to include the trading pairs you want to download data for.
 
 For example, to download 1-hour candles for the BTC/USDT, ETH/USDT, and ADA/USDT pairs on Binance from January 1, 2015 to April 1, 2022 and save the output to CSV files, modify the `base_symbols` and `quote_symbols` lists as follows:
 
@@ -21,7 +21,7 @@ base_symbols = ['BTC', 'ETH', 'ADA']
 quote_symbols = ['USDT']
 ```
 
-Then, run the `candledownloader.py` file in your Python editor or IDE.
+Then, run the `main.py` file in your Python editor or IDE.
 
 Note that some exchanges may not have data available for dates that far back. In that case, the script will download as much data as possible and skip any missing data.
 
