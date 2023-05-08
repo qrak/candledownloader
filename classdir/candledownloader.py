@@ -2,12 +2,38 @@ import ccxt
 import pandas as pd
 import time
 import os
+import logging
 
 
 class CandleDownloader:
+    logger = None
+
+    @staticmethod
+    def initialize_logger(log_to_file=False):
+        if CandleDownloader.logger is not None:
+            return
+
+        logger = logging.getLogger(__name__)
+        logger.setLevel(logging.INFO)
+
+        # Console handler
+        console_handler = logging.StreamHandler()
+        console_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+        console_handler.setFormatter(console_formatter)
+        logger.addHandler(console_handler)
+
+        # File handler
+        if log_to_file:
+            file_handler = logging.FileHandler('candle_downloader.log')
+            file_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+            file_handler.setFormatter(file_formatter)
+            logger.addHandler(file_handler)
+
+        CandleDownloader.logger = logger
+
     def __init__(self, exchange_name='binance', pair_name='BTC/USDT', timeframe='5m',
                  start_time='2015-01-01T00:00:00Z', end_time=None, batch_size=1000,
-                 output_directory='./csv_ohlcv', output_file=None):
+                 output_directory='./csv_ohlcv', output_file=None, log_to_file=False):
         self.exchange = getattr(ccxt, exchange_name)(
             {
                 "enableRateLimit": True,
@@ -22,6 +48,7 @@ class CandleDownloader:
         self.total_candles = 0
         self.total_batches = 0
         self.buffer = []
+        self.initialize_logger(log_to_file)
 
         # Validate the parameters
         if pair_name not in self.exchange.load_markets():
@@ -58,7 +85,7 @@ class CandleDownloader:
             df = pd.read_csv(self.output_file, usecols=[0], header=None, skiprows=1)
             self.start_time = int(df.iloc[-1, 0]) + (
                     self.exchange.parse_timeframe(self.timeframe) * 1000)
-            print(f"Resuming from timestamp {self.start_time}...")
+            self.logger.info(f"Resuming from timestamp {self.start_time}...")
         except (FileNotFoundError, pd.errors.EmptyDataError):
             self.start_time = self.exchange.parse8601(self.start_time)
 
@@ -84,7 +111,7 @@ class CandleDownloader:
                 # Update progress message
                 self.total_candles += len(df)
                 self.total_batches += 1
-                print(f"Downloaded {self.total_candles} candles for {self.pair_name}, timeframe: {self.timeframe} in {self.total_batches} batches...")
+                self.logger.info(f"Downloaded {self.total_candles} candles for {self.pair_name}, timeframe: {self.timeframe} in {self.total_batches} batches...")
 
                 # Write the accumulated data to the output file
                 self.write_to_output_file(df)
@@ -93,10 +120,10 @@ class CandleDownloader:
                 self.buffer = []
 
             except (ccxt.RateLimitExceeded, ccxt.DDoSProtection) as e:
-                print(f"Rate limit exceeded: {e}. Retrying in 60 seconds...")
+                self.logger.warning(f"Rate limit exceeded: {e}. Retrying in 60 seconds...")
                 time.sleep(60)
             except ccxt.BaseError as e:
-                print(f"Exception occurred: {e}. Retrying in 60 seconds...")
+                self.logger.error(f"Exception occurred: {e}. Retrying in 60 seconds...")
                 time.sleep(60)
 
                 # Write the remaining data in the buffer to the output file
@@ -106,5 +133,5 @@ class CandleDownloader:
                     self.buffer = []
 
         # Print a message when the script has finished
-        print(
+        self.logger.info(
             f'Download complete. Total candles: {self.total_candles}, Total batches: {self.total_batches}, Output file: {self.output_file}')
