@@ -1,4 +1,3 @@
-```markdown
 # Candlestick Data Downloader
 
 ## Overview
@@ -15,7 +14,6 @@ This Python script downloads historical candlestick data from various cryptocurr
   - [Running the Script](#running-the-script)
 - [Output Format](#output-format)
 - [Dependencies](#dependencies)
-- [Logging](#logging)
 - [License](#license)
 
 ## Requirements
@@ -49,13 +47,14 @@ Edit the `config.cfg` file for basic configuration settings:
 
 ### Advanced Configuration
 
-Advanced options can also be set via the `config.cfg` file:
+Advanced options can also be set via the `config.cfg` file, all variables are optional:
 
 - `start_time`: Specify the start time in ISO 8601 format for historical data download.
 - `end_time`: Specify the end time in ISO 8601 format for historical data download.
 - `batch_size`: Number of records fetched in each request.
 - `output_directory`: Directory to save CSV files.
 - `output_file`: Optionally, specify an output file name.
+- `enable_logging`: Enable output logging to file
 
 ### Running the Script
 
@@ -83,11 +82,6 @@ The script outputs data into CSV files with the following columns:
 - `ConfigParser`: Configuration parsing library.
 - `logging`: Standard Python logging library.
 
-## Logging
-
-Enable logging by setting the `enable_logging` to `True` in the `config.cfg` file. Logs will help track the downloading process.
-
 ## License
 
 This project is licensed under the MIT License.
-```
