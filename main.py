@@ -1,4 +1,5 @@
 from classdir.candledownloader import CandleDataDownloader
+from configparser import ConfigParser
 
 if __name__ == "__main__":
     """
@@ -29,6 +30,11 @@ if __name__ == "__main__":
                              popular cryptocurrencies like BTC, ETH, ADA etc.
         quote_symbols (list): List of quote currencies. Default is ['USDT'].
         timeframes (list): List of timeframes for which to download candle data. Default is ['1h', '1d', '1w', '1M'].
+        start_time (str): The starting time for which to download candle data in ISO 8601 format. Default is '2015-01-01T00:00:00Z'.
+        end_time (str): The ending time for which to download candle data in ISO 8601 format. Default is None.
+        batch_size (int): The number of records to be fetched in each request. Default is 1000.
+        output_directory (str): The directory where CSV files will be stored. Default is './csv_ohlcv'.
+        output_file (str): The name of the output file. If specified, data will be stored in this file. Default is None.
 
     Classes:
         CandleDataDownloader: Handles the configuration and initiation of candle data download process.
@@ -44,22 +50,33 @@ if __name__ == "__main__":
         Ensure the `ccxt` library is installed and the `classdir.candledownloader` module is accessible
         from the script's location.
     """
-    # Enable logging. Default: False
-    enable_logging = False
 
-    # Set to True to download candle data for all trading pairs available on the exchange. If set to False, only the
-    # pairs specified in base_symbols and quote_symbols will be processed.
-    all_pairs = False
+    # Read configurations from config.cfg
+    config = ConfigParser()
+    config.read('config.cfg')
 
-    # Create lists of base symbols, quote symbols, and timeframes (optional)
-    base_symbols = ['BTC', 'ETH', 'ADA', 'DOT', 'XRP', 'SOL', 'MATIC', 'LTC', 'AVAX', 'LINK', 'ATOM', 'ETC']
+    all_pairs = config.getboolean('DEFAULT', 'all_pairs')
+    base_symbols = config.get('DEFAULT', 'base_symbols').split(',')
+    quote_symbols = config.get('DEFAULT', 'quote_symbols').split(',')
+    timeframes = config.get('DEFAULT', 'timeframes').split(',')
+    start_time = config.get('DEFAULT', 'start_time')
+    end_time = config.get('DEFAULT', 'end_time') or None  # It will be None if not specified
+    batch_size = config.getint('DEFAULT', 'batch_size')
+    output_directory = config.get('DEFAULT', 'output_directory')
+    output_file = config.get('DEFAULT', 'output_file') or None  # It will be None if not specified
+    enable_logging = config.getboolean('DEFAULT', 'enable_logging')
 
     # Instantiate CandleDataDownloader class
     downloader = CandleDataDownloader(all_pairs=all_pairs,
                                       base_symbols=base_symbols,
-                                      quote_symbols=['USDT'],
-                                      timeframes=['1h', '1d', '1w', '1M'],
-                                      enable_logging=enable_logging)
+                                      quote_symbols=quote_symbols,
+                                      timeframes=timeframes,
+                                      start_time=start_time,
+                                      end_time=end_time,
+                                      batch_size=batch_size,
+                                      output_directory=output_directory,
+                                      output_file=None,
+                                      log_to_file=enable_logging)
 
     # Call the method to download candles for the specified or all trading pairs
     downloader.download_candles_for_pairs()
