@@ -5,6 +5,40 @@ import os
 import logging
 
 
+class CandleDataDownloader:
+
+    def __init__(self, exchange_name='binance', all_pairs=True, base_symbols=None, quote_symbols=None,
+                 timeframes=None, enable_logging=False):
+        self.exchange_name = exchange_name
+        self.all_pairs = all_pairs
+        self.base_symbols = base_symbols if base_symbols else []
+        self.quote_symbols = quote_symbols if quote_symbols else ['USDT']
+        self.timeframes = timeframes if timeframes else ['1h', '1d', '1w', '1M']
+        self.enable_logging = enable_logging
+        self.exchange = getattr(ccxt, exchange_name)()
+
+    def get_all_pairs(self, quote_currency='USDT'):
+        markets = self.exchange.load_markets()
+        all_pairs = [f"{market['base']}/{quote_currency}" for market in markets.values() if market['quote'] == quote_currency]
+        return all_pairs
+
+    def download_candles_for_pairs(self):
+        trading_pairs = []
+        if self.all_pairs:
+            trading_pairs = self.get_all_pairs()
+        else:
+            trading_pairs = [f"{base}/{quote}" for base in self.base_symbols for quote in self.quote_symbols]
+
+        # Iterate over the trading pairs and timeframes and download candles for each pair
+        for pair_name in trading_pairs:
+            for timeframe in self.timeframes:
+                candledownload = CandleDownloader(exchange_name=self.exchange_name, pair_name=pair_name,
+                                                  timeframe=timeframe, log_to_file=self.enable_logging)
+                candledownload.logger.info(f"Downloading candles for {pair_name}... timeframe: {timeframe}")
+                candledownload.download_candles()
+                candledownload.logger.info(f"Finished downloading candles for {pair_name} with timeframe {timeframe}\n")
+
+
 class CandleDownloader:
     logger = None
 
