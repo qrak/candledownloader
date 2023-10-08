@@ -75,7 +75,7 @@ if __name__ == "__main__":
                                       end_time=end_time,
                                       batch_size=batch_size,
                                       output_directory=output_directory,
-                                      output_file=None,
+                                      output_file=output_file,
                                       log_to_file=enable_logging)
 
     # Call the method to download candles for the specified or all trading pairs
