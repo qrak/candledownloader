@@ -8,13 +8,21 @@ import logging
 class CandleDataDownloader:
 
     def __init__(self, exchange_name='binance', all_pairs=True, base_symbols=None, quote_symbols=None,
-                 timeframes=None, enable_logging=False):
+                 start_time='2015-01-01T00:00:00Z', end_time=None, batch_size=1000,
+                 output_directory='./csv_ohlcv', output_file=None,
+                 timeframes=None, log_to_file=False):
         self.exchange_name = exchange_name
         self.all_pairs = all_pairs
         self.base_symbols = base_symbols if base_symbols else []
         self.quote_symbols = quote_symbols if quote_symbols else ['USDT']
+        self.start_time = start_time
+        self.end_time = end_time
+        self.batch_size = batch_size
+        self.output_directory = output_directory
+        self.output_file = output_file
         self.timeframes = timeframes if timeframes else ['1h', '1d', '1w', '1M']
-        self.enable_logging = enable_logging
+        self.trading_pairs = []
+        self.log_to_file = log_to_file
         self.exchange = getattr(ccxt, exchange_name)()
 
     def get_all_pairs(self, quote_currency='USDT'):
@@ -23,17 +31,19 @@ class CandleDataDownloader:
         return all_pairs
 
     def download_candles_for_pairs(self):
-        trading_pairs = []
         if self.all_pairs:
-            trading_pairs = self.get_all_pairs()
+            self.trading_pairs = self.get_all_pairs()
         else:
-            trading_pairs = [f"{base}/{quote}" for base in self.base_symbols for quote in self.quote_symbols]
+            self.trading_pairs = [f"{base}/{quote}" for base in self.base_symbols for quote in self.quote_symbols]
 
         # Iterate over the trading pairs and timeframes and download candles for each pair
-        for pair_name in trading_pairs:
+        for pair_name in self.trading_pairs:
             for timeframe in self.timeframes:
                 candledownload = CandleDownloader(exchange_name=self.exchange_name, pair_name=pair_name,
-                                                  timeframe=timeframe, log_to_file=self.enable_logging)
+                                                  timeframe=timeframe, start_time=self.start_time,
+                                                  end_time=self.end_time, batch_size=self.batch_size,
+                                                  output_directory=self.output_directory, output_file=self.output_file,
+                                                  log_to_file=self.log_to_file)
                 candledownload.logger.info(f"Downloading candles for {pair_name}... timeframe: {timeframe}")
                 candledownload.download_candles()
                 candledownload.logger.info(f"Finished downloading candles for {pair_name} with timeframe {timeframe}\n")
