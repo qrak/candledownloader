@@ -1,8 +1,9 @@
+```markdown
 # Candlestick Data Downloader
 
 ## Overview
 
-This Python script downloads historical candlestick data from various cryptocurrency exchanges, including but not limited to Binance, Bitfinex, BitMEX, Bitstamp, Coinbase Pro, Kraken, and OKEx. It utilizes the `CandleDataDownloader` class to efficiently and flexibly fetch candlestick data. The data is saved into CSV files, making it easy to analyze and visualize. If the program is terminated, the progress is saved. Upon restart, the downloader will continue fetching data where it left off.
+This Python script downloads historical candlestick data from various cryptocurrency exchanges. It uses the `CandleDataDownloader` class for efficient and flexible data fetching. The script now supports reading configuration from a `config.cfg` file for easier customization. The data is saved into CSV files, making it easy for subsequent analysis and visualization. If the program is terminated, the progress is saved and can be resumed upon restart.
 
 ## Table of Contents
 
@@ -10,6 +11,7 @@ This Python script downloads historical candlestick data from various cryptocurr
 - [Installation](#installation)
 - [Usage](#usage)
   - [Configuration](#configuration)
+  - [Advanced Configuration](#advanced-configuration)
   - [Running the Script](#running-the-script)
 - [Output Format](#output-format)
 - [Dependencies](#dependencies)
@@ -21,6 +23,7 @@ This Python script downloads historical candlestick data from various cryptocurr
 - Python 3.8+
 - `ccxt` library
 - `pandas` library
+- `ConfigParser` library
 
 ## Installation
 
@@ -36,11 +39,23 @@ This Python script downloads historical candlestick data from various cryptocurr
 
 ### Configuration
 
-1. Open the main script (`main.py` or your specified entry file).
-2. Set `all_pairs` to `True` for downloading data for all trading pairs, or `False` for specific pairs.
-3. Modify the `base_symbols` list to include the desired base currencies if `all_pairs` is set to `False`.
-4. Optionally, adjust the `quote_symbols` and `timeframes` lists.
-5. Toggle `enable_logging` to `True` for logging.
+Edit the `config.cfg` file for basic configuration settings:
+
+- `all_pairs`: Set to `True` for downloading data for all trading pairs, or `False` for specific pairs.
+- `base_symbols`: Modify this comma-separated list to include the desired base currencies if `all_pairs` is set to `False`.
+- `quote_symbols`: Comma-separated list for quote currencies.
+- `timeframes`: Comma-separated list for different timeframes.
+- `enable_logging`: Toggle to `True` for logging.
+
+### Advanced Configuration
+
+Advanced options can also be set via the `config.cfg` file:
+
+- `start_time`: Specify the start time in ISO 8601 format for historical data download.
+- `end_time`: Specify the end time in ISO 8601 format for historical data download.
+- `batch_size`: Number of records fetched in each request.
+- `output_directory`: Directory to save CSV files.
+- `output_file`: Optionally, specify an output file name.
 
 ### Running the Script
 
@@ -50,14 +65,9 @@ Run the script using:
 python main.py
 ```
 
-### Advanced Options
-
-- Specify the `start_time` if you wish to download historical data from a particular date.
-- Progress updates are displayed in the console during data download.
-
 ## Output Format
 
-The script outputs data to CSV files in the following column format:
+The script outputs data into CSV files with the following columns:
 
 - `timestamp`
 - `open`
@@ -70,12 +80,14 @@ The script outputs data to CSV files in the following column format:
 
 - `ccxt`: Library for cryptocurrency trading.
 - `pandas`: Data manipulation and analysis.
+- `ConfigParser`: Configuration parsing library.
 - `logging`: Standard Python logging library.
 
 ## Logging
 
-Enable logging by setting the `enable_logging` variable to `True` in the main script. Logs track the downloading process.
+Enable logging by setting the `enable_logging` to `True` in the `config.cfg` file. Logs will help track the downloading process.
 
 ## License
 
 This project is licensed under the MIT License.
+```
