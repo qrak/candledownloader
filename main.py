@@ -55,6 +55,7 @@ if __name__ == "__main__":
     config = ConfigParser()
     config.read('config.cfg')
 
+    exchange_name = config.get('DEFAULT', 'exchange_name')
     all_pairs = config.getboolean('DEFAULT', 'all_pairs')
     base_symbols = config.get('DEFAULT', 'base_symbols').split(',')
     quote_symbols = config.get('DEFAULT', 'quote_symbols').split(',')
@@ -67,7 +68,8 @@ if __name__ == "__main__":
     enable_logging = config.getboolean('DEFAULT', 'enable_logging')
 
     # Instantiate CandleDataDownloader class
-    downloader = CandleDataDownloader(all_pairs=all_pairs,
+    downloader = CandleDataDownloader(exchange_name=exchange_name,
+                                      all_pairs=all_pairs,
                                       base_symbols=base_symbols,
                                       quote_symbols=quote_symbols,
                                       timeframes=timeframes,
