@@ -46,6 +46,7 @@ class CandleDataDownloader:
         timeframes (list): A list of timeframes to fetch data for.
         log_to_file (bool): A flag to indicate whether to log output to a file.
     """
+
     def __init__(self, exchange_name='binance', all_pairs=True, base_symbols=None, quote_symbols=None,
                  start_time='2015-01-01T00:00:00Z', end_time=None, batch_size=1000,
                  output_directory='./csv_ohlcv', output_file=None,
@@ -63,14 +64,15 @@ class CandleDataDownloader:
         self.trading_pairs = []
         self.log_to_file = log_to_file
         self.exchange = getattr(ccxt, exchange_name)()
+        self.stablecoins = ['USDT', 'USDC', 'TUSD', 'PAX', 'BUSD', 'DAI', 'FDUSD']
 
     def get_all_pairs(self, quote_currency='USDT'):
         markets = self.exchange.load_markets()
-        # Filter for active spot markets with the specified quote currency
         active_spot_pairs = [
             f"{market['base']}/{quote_currency}"
             for market in markets.values()
-            if market['quote'] == quote_currency and market['active'] and market.get('spot', False)
+            if market['quote'] == quote_currency and market['active'] and market.get('spot', False) and
+               market['base'] not in self.stablecoins
         ]
         return active_spot_pairs
 
@@ -81,14 +83,11 @@ class CandleDataDownloader:
         markets = self.exchange.load_markets()
         volume_ranked_pairs = {}
 
-        # Define a list of stablecoins to skip as base currencies
-        stablecoins = ['USDT', 'USDC', 'TUSD', 'PAX', 'BUSD', 'DAI', 'FDUSD']
-
         for symbol, market in markets.items():
             # Check if the market is active, is a spot market, has the specified quote currency,
             # and the base currency is not a stablecoin
             if (market['active'] and market['spot'] and market['quote'] == quote_currency and
-                    market['base'] not in stablecoins):
+                    market['base'] not in self.stablecoins):
                 try:
                     print(f"Fetching OHLCV for {symbol}...")
                     ohlcv = self.exchange.fetch_ohlcv(symbol, '1d',
@@ -182,6 +181,7 @@ class CandleDownloader:
         Returns:
             None
         """
+
     def __init__(self, exchange_name='binance', pair_name='BTC/USDT', timeframe='5m',
                  start_time='2015-01-01T00:00:00Z', end_time=None, batch_size=1000,
                  output_directory='./csv_ohlcv', output_file=None, log_to_file=False):
@@ -262,7 +262,8 @@ class CandleDownloader:
                 # Update progress message
                 self.total_candles += len(df)
                 self.total_batches += 1
-                self.logger.info(f"Downloaded {self.total_candles} candles for {self.pair_name}, timeframe: {self.timeframe} in {self.total_batches} batches...")
+                self.logger.info(
+                    f"Downloaded {self.total_candles} candles for {self.pair_name}, timeframe: {self.timeframe} in {self.total_batches} batches...")
 
                 # Write the accumulated data to the output file
                 self.write_to_output_file(df)
