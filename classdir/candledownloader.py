@@ -1,12 +1,51 @@
+from datetime import datetime, timedelta
 import ccxt
 import pandas as pd
 import time
 import os
 import logging
+import numpy as np
+
+
+def average_quote_volume(close_prices, volumes, window_size=96):
+    """
+    Calculate the average quote volume based on the close prices and volumes over a specified window size.
+
+    Parameters:
+    close_prices (list): List of close prices.
+    volumes (list): List of volumes.
+    window_size (int): Size of the window for calculating the average.
+
+    Returns:
+    float: The overall average quote volume.
+    """
+    n = len(close_prices)
+    quote_volumes = np.full(n, np.nan)
+    for i in range(window_size - 1, n):
+        average_close_price = np.mean(close_prices[i - window_size + 1:i + 1])
+        average_volume = np.mean(volumes[i - window_size + 1:i + 1])
+        quote_volumes[i] = average_close_price * average_volume
+    overall_average_quote_volume = np.nanmean(quote_volumes)
+    return overall_average_quote_volume
 
 
 class CandleDataDownloader:
+    """
+    Initialize the data fetcher with the specified parameters.
 
+    Parameters:
+        exchange_name (str): The name of the exchange.
+        all_pairs (bool): A flag to indicate whether to fetch data for all available trading pairs.
+        base_symbols (list): A list of base symbols to fetch data for.
+        quote_symbols (list): A list of quote symbols to fetch data for.
+        start_time (str): The start time for fetching data.
+        end_time (str): The end time for fetching data.
+        batch_size (int): The size of each data batch to fetch.
+        output_directory (str): The directory where the output CSV files will be stored.
+        output_file (str): The name of the output file.
+        timeframes (list): A list of timeframes to fetch data for.
+        log_to_file (bool): A flag to indicate whether to log output to a file.
+    """
     def __init__(self, exchange_name='binance', all_pairs=True, base_symbols=None, quote_symbols=None,
                  start_time='2015-01-01T00:00:00Z', end_time=None, batch_size=1000,
                  output_directory='./csv_ohlcv', output_file=None,
@@ -27,14 +66,66 @@ class CandleDataDownloader:
 
     def get_all_pairs(self, quote_currency='USDT'):
         markets = self.exchange.load_markets()
-        all_pairs = [f"{market['base']}/{quote_currency}" for market in markets.values() if market['quote'] == quote_currency]
-        return all_pairs
+        # Filter for active spot markets with the specified quote currency
+        active_spot_pairs = [
+            f"{market['base']}/{quote_currency}"
+            for market in markets.values()
+            if market['quote'] == quote_currency and market['active'] and market.get('spot', False)
+        ]
+        return active_spot_pairs
 
-    def download_candles_for_pairs(self):
-        if self.all_pairs:
-            self.trading_pairs = self.get_all_pairs()
+    def fetch_and_rank_pairs_by_volume(self, days=365, limit=100, quote_currency='USDT'):
+        print("Fetching and ranking pairs by volume...")
+        end_time = datetime.now()
+        start_time = end_time - timedelta(days=days)
+        markets = self.exchange.load_markets()
+        volume_ranked_pairs = {}
+
+        # Define a list of stablecoins to skip as base currencies
+        stablecoins = ['USDT', 'USDC', 'TUSD', 'PAX', 'BUSD', 'DAI', 'FDUSD']
+
+        for symbol, market in markets.items():
+            # Check if the market is active, is a spot market, has the specified quote currency,
+            # and the base currency is not a stablecoin
+            if (market['active'] and market['spot'] and market['quote'] == quote_currency and
+                    market['base'] not in stablecoins):
+                try:
+                    print(f"Fetching OHLCV for {symbol}...")
+                    ohlcv = self.exchange.fetch_ohlcv(symbol, '1d',
+                                                      since=self.exchange.parse8601(start_time.isoformat()), limit=days)
+                    if ohlcv:
+                        close_prices = np.array([candle[4] for candle in ohlcv])
+                        volumes = np.array([candle[5] for candle in ohlcv])
+                        average_volume = average_quote_volume(close_prices, volumes)
+                        volume_ranked_pairs[symbol] = average_volume
+                except Exception as e:
+                    print(f"Failed to fetch or calculate volume for {symbol}: {e}")
+
+        # Sort pairs by average volume and select the top 'limit'
+        most_traded_pairs = sorted(volume_ranked_pairs, key=volume_ranked_pairs.get, reverse=True)[:limit]
+        print(
+            f"Top {limit} most traded pairs with quote currency {quote_currency} (excluding stablecoin bases): {most_traded_pairs}")
+        return most_traded_pairs
+
+    def download_candles_for_pairs(self, most_traded=False, days=365, limit=100):
+        """
+        Download candles for trading pairs based on specified criteria.
+
+        Args:
+            most_traded (bool): Flag to indicate if the most traded pairs should be used.
+            days (int): Number of days to consider for fetching and ranking pairs by volume.
+            limit (int): Maximum number of pairs to consider for fetching and ranking.
+
+        Returns:
+            None
+        """
+        if most_traded:
+            self.trading_pairs = self.fetch_and_rank_pairs_by_volume(days=days, limit=limit)
         else:
-            self.trading_pairs = [f"{base}/{quote}" for base in self.base_symbols for quote in self.quote_symbols]
+            if self.all_pairs:
+                self.trading_pairs = self.get_all_pairs()
+            else:
+                self.trading_pairs = [f"{base}/{quote}" for base in self.base_symbols for quote in self.quote_symbols]
 
         # Iterate over the trading pairs and timeframes and download candles for each pair
         for pair_name in self.trading_pairs:
@@ -74,7 +165,23 @@ class CandleDownloader:
             logger.addHandler(file_handler)
 
         CandleDownloader.logger = logger
+        """
+        Initializes the object with the specified parameters.
 
+        Parameters:
+            exchange_name (str): The name of the exchange (default is 'binance').
+            pair_name (str): The trading pair name (default is 'BTC/USDT').
+            timeframe (str): The time frame for the OHLCV data (default is '5m').
+            start_time (str): The start time for fetching the data (default is '2015-01-01T00:00:00Z').
+            end_time (str): The end time for fetching the data (default is None).
+            batch_size (int): The batch size for fetching the data (default is 1000).
+            output_directory (str): The directory for storing the CSV files (default is './csv_ohlcv').
+            output_file (str): The name of the output file (default is None).
+            log_to_file (bool): Flag indicating whether to log to a file (default is False).
+
+        Returns:
+            None
+        """
     def __init__(self, exchange_name='binance', pair_name='BTC/USDT', timeframe='5m',
                  start_time='2015-01-01T00:00:00Z', end_time=None, batch_size=1000,
                  output_directory='./csv_ohlcv', output_file=None, log_to_file=False):
