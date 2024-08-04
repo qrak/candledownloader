@@ -1,35 +1,74 @@
+from typing import List, Optional
 from classdir.candledownloader import CandleDataDownloader
 from configparser import ConfigParser
 
-if __name__ == "__main__":
 
-    # Read configurations from config.cfg
+def load_config(config_file: str = 'config.cfg') -> ConfigParser:
+    """
+    Load and parse the configuration file.
+
+    Parameters:
+    config_file (str): Path to the configuration file. Default is 'config.cfg'.
+
+    Returns:
+    ConfigParser: Parsed configuration object.
+
+    Raises:
+    FileNotFoundError: If the configuration file is not found.
+    configparser.Error: If there's an error parsing the configuration file.
+    """
     config = ConfigParser()
-    config.read('config.cfg')
+    config.read(config_file)
+    return config
 
-    exchange_name = config.get('DEFAULT', 'exchange_name')
-    all_pairs = config.getboolean('DEFAULT', 'all_pairs')
-    base_symbols = config.get('DEFAULT', 'base_symbols').split(',')
-    quote_symbols = config.get('DEFAULT', 'quote_symbols').split(',')
-    timeframes = config.get('DEFAULT', 'timeframes').split(',')
-    start_time = config.get('DEFAULT', 'start_time')
-    end_time = config.get('DEFAULT', 'end_time') or None  # It will be None if not specified
-    batch_size = config.getint('DEFAULT', 'batch_size')
-    output_directory = config.get('DEFAULT', 'output_directory')
-    output_file = config.get('DEFAULT', 'output_file') or None  # It will be None if not specified
-    enable_logging = config.getboolean('DEFAULT', 'enable_logging')
 
-    # Instantiate CandleDataDownloader class
-    downloader = CandleDataDownloader(exchange_name=exchange_name,
-                                      all_pairs=all_pairs,
-                                      base_symbols=base_symbols,
-                                      quote_symbols=quote_symbols,
-                                      timeframes=timeframes,
-                                      start_time=start_time,
-                                      end_time=end_time,
-                                      batch_size=batch_size,
-                                      output_directory=output_directory,
-                                      output_file=output_file,
-                                      log_to_file=enable_logging)
+def create_downloader(cfg: ConfigParser) -> CandleDataDownloader:
+    """
+    Create a CandleDataDownloader instance based on the provided configuration.
 
-    downloader.download_candles_for_pairs(most_traded=False, days=365, limit=100)
+    Parameters:
+    cfg (ConfigParser): Parsed configuration object.
+
+    Returns:
+    CandleDataDownloader: Configured instance of CandleDataDownloader.
+
+    Raises:
+    ValueError: If required configuration values are missing or invalid.
+    """
+    try:
+        return CandleDataDownloader(cfg)
+    except KeyError as e:
+        raise ValueError(f"Missing required configuration value: {e}")
+    except ValueError as e:
+        raise ValueError(f"Invalid configuration value: {e}")
+
+
+if __name__ == "__main__":
+    """
+    Main entry point for the candle data downloader script.
+
+    This script reads configuration from a file, creates a CandleDataDownloader instance,
+    and initiates the download process for the specified trading pairs and timeframes.
+
+    Configuration file (config.cfg) should contain the following fields:
+    - exchange_name: Name of the exchange (e.g., 'binance')
+    - all_pairs: Boolean flag to download data for all available pairs
+    - base_symbols: Comma-separated list of base symbols (e.g., 'BTC,ETH')
+    - quote_symbols: Comma-separated list of quote symbols (e.g., 'USDT,USD')
+    - timeframes: Comma-separated list of timeframes (e.g., '1h,1d,1w')
+    - start_time: Start time for data download in ISO 8601 format (default will start from 2015 which is enough 
+    for most exchanges)
+    - end_time: End time for data download in ISO 8601 format (optional)
+    - batch_size: Number of candles to fetch in each API request
+    - output_directory: Directory to save the downloaded data
+    - output_file: Specific filename for the output (optional)
+    - enable_logging: Boolean flag to enable logging to a file
+
+    Raises:
+    FileNotFoundError: If the configuration file is not found.
+    configparser.Error: If there's an error parsing the configuration file.
+    ValueError: If required configuration values are missing or invalid.
+    """
+    config = load_config()
+    downloader = create_downloader(config)
+    downloader.download_candles_for_pairs()
