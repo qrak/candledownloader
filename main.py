@@ -1,4 +1,3 @@
-from typing import List, Optional
 from classdir.candledownloader import CandleDataDownloader
 from configparser import ConfigParser
 
