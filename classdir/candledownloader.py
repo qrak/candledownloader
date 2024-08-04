@@ -1,24 +1,38 @@
-from datetime import datetime, timedelta
-import ccxt
-import pandas as pd
-import time
-import os
 import logging
+import os
+import time
+from datetime import datetime, timedelta, timezone
+from typing import List, Dict, Optional, Union
+from configparser import ConfigParser
+
+import ccxt
 import numpy as np
+import pandas as pd
 
 
-def average_quote_volume(close_prices, volumes, window_size=96):
+def average_quote_volume(close_prices: Union[List[float], np.ndarray],
+                         volumes: Union[List[float], np.ndarray],
+                         window_size: int = 96) -> float:
     """
     Calculate the average quote volume based on the close prices and volumes over a specified window size.
 
     Parameters:
-    close_prices (list): List of close prices.
-    volumes (list): List of volumes.
-    window_size (int): Size of the window for calculating the average.
+    close_prices (Union[List[float], np.ndarray]): List or array of close prices for each period.
+    volumes (Union[List[float], np.ndarray]): List or array of trading volumes for each period.
+    window_size (int): Size of the rolling window for calculating the average. Default is 96.
 
     Returns:
     float: The overall average quote volume.
+
+    Raises:
+    ValueError: If the lengths of close_prices and volumes are not equal.
     """
+    if len(close_prices) != len(volumes):
+        raise ValueError("The lengths of close_prices and volumes must be equal.")
+
+    close_prices = np.array(close_prices)
+    volumes = np.array(volumes)
+
     n = len(close_prices)
     quote_volumes = np.full(n, np.nan)
     for i in range(window_size - 1, n):
@@ -31,42 +45,76 @@ def average_quote_volume(close_prices, volumes, window_size=96):
 
 class CandleDataDownloader:
     """
-    Initialize the data fetcher with the specified parameters.
+    A class for downloading and managing candle data from cryptocurrency exchanges.
 
-    Parameters:
-        exchange_name (str): The name of the exchange.
-        all_pairs (bool): A flag to indicate whether to fetch data for all available trading pairs.
-        base_symbols (list): A list of base symbols to fetch data for.
-        quote_symbols (list): A list of quote symbols to fetch data for.
-        start_time (str): The start time for fetching data.
-        end_time (str): The end time for fetching data.
-        batch_size (int): The size of each data batch to fetch.
-        output_directory (str): The directory where the output CSV files will be stored.
-        output_file (str): The name of the output file.
-        timeframes (list): A list of timeframes to fetch data for.
-        log_to_file (bool): A flag to indicate whether to log output to a file.
+    This class provides functionality to fetch historical price data (candles) for various
+    trading pairs across different timeframes. It can be configured to download data for
+    specific pairs or all available pairs on an exchange.
+
+    Attributes:
+        exchange_name (str): The name of the exchange to fetch data from.
+        all_pairs (bool): Flag to indicate whether to fetch data for all available trading pairs.
+        base_symbols (List[str]): List of base symbols to fetch data for when not using all pairs.
+        quote_symbols (List[str]): List of quote symbols to fetch data for when not using all pairs.
+        start_time (str): The start time for fetching data in ISO 8601 format.
+        end_time (Optional[str]): The end time for fetching data in ISO 8601 format.
+        batch_size (int): The number of candles to fetch in each API request.
+        output_directory (str): The directory where output CSV files will be stored.
+        output_file (Optional[str]): The name of the output file (if a single file is used for all data).
+        timeframes (List[str]): List of timeframes to fetch data for (e.g., ['1h', '1d', '1w']).
+        log_to_file (bool): Flag to indicate whether to log output to a file.
+        exchange (ccxt.Exchange): The CCXT exchange object used for API calls.
+        stablecoins (List[str]): List of stablecoin symbols to exclude from base currencies.
+        trading_pairs (List[str]): List of trading pairs to download data for.
     """
 
-    def __init__(self, exchange_name='binance', all_pairs=True, base_symbols=None, quote_symbols=None,
-                 start_time='2015-01-01T00:00:00Z', end_time=None, batch_size=1000,
-                 output_directory='./csv_ohlcv', output_file=None,
-                 timeframes=None, log_to_file=False):
-        self.exchange_name = exchange_name
-        self.all_pairs = all_pairs
-        self.base_symbols = base_symbols if base_symbols else []
-        self.quote_symbols = quote_symbols if quote_symbols else ['USDT']
-        self.start_time = start_time
-        self.end_time = end_time
-        self.batch_size = batch_size
-        self.output_directory = output_directory
-        self.output_file = output_file
-        self.timeframes = timeframes if timeframes else ['1h', '1d', '1w', '1M']
-        self.trading_pairs = []
-        self.log_to_file = log_to_file
-        self.exchange = getattr(ccxt, exchange_name)()
-        self.stablecoins = ['USDT', 'USDC', 'TUSD', 'PAX', 'BUSD', 'DAI', 'FDUSD']
+    def __init__(self, cfg: ConfigParser):
+        """
+        Initialize the CandleDataDownloader with the specified configuration.
 
-    def get_all_pairs(self, quote_currency='USDT'):
+        Parameters:
+            cfg (ConfigParser): Configuration object containing the necessary parameters.
+        """
+        self.exchange_name: str = cfg.get('DEFAULT', 'exchange_name')
+        self.all_pairs: bool = cfg.getboolean('DEFAULT', 'all_pairs')
+        self.base_symbols: List[str] = cfg.get('DEFAULT', 'base_symbols').split(',')
+        self.quote_symbols: List[str] = cfg.get('DEFAULT', 'quote_symbols').split(',')
+        self.timeframes: List[str] = cfg.get('DEFAULT', 'timeframes').split(',')
+        self.start_time: str = cfg.get('DEFAULT', 'start_time')
+        self.end_time: Optional[str] = cfg.get('DEFAULT', 'end_time') or None
+        self.batch_size: int = cfg.getint('DEFAULT', 'batch_size')
+        self.output_directory: str = cfg.get('DEFAULT', 'output_directory')
+        self.output_file: Optional[str] = cfg.get('DEFAULT', 'output_file') or None
+        self.log_to_file: bool = cfg.getboolean('DEFAULT', 'enable_logging')
+
+        self.trading_pairs: List[str] = []
+        self.exchange: ccxt.Exchange = getattr(ccxt, self.exchange_name)()
+        self.stablecoins: List[str] = [
+            'USDT', 'BUSD', 'USDC', 'DAI', 'USD', 'EUR', 'JPY', 'GBP', 'AUD', 'CAD', 'CHF', 'CNY',
+            'SEK', 'NZD', 'PLN', 'TUSD', 'PAX', 'USDS', 'FDUSD', 'USDP', 'MOB', 'USTC', 'EURT', 'RUB', 'BRL',
+            'GUSD', 'USDJ', 'USDD', 'EURS', 'INR', 'HKD', 'EUROC', 'PYUSD', 'USDe', 'XBT', 'ZUSD',
+            'ZEUR', 'ZCAD', 'ZJPY', 'ZGBP', 'ZAUD', 'USDK', 'USDX', 'USDE',
+            'AEUR', 'ARS', 'BIDR', 'BKRW', 'BVND', 'COP', 'CZK', 'IDRT', 'MXN', 'NGN', 'RON', 'SBTC',
+            'SUSDT', 'TRY', 'UAH', 'USD4', 'UST', 'VAI', 'ZAR'
+        ]
+
+    def _get_all_pairs(self, quote_currency: str = 'USDT') -> List[str]:
+        """
+        Retrieve all active spot trading pairs for a given quote currency.
+
+        This method filters the available markets on the exchange to return only
+        active spot trading pairs with the specified quote currency. It excludes
+        pairs where the base currency is a stablecoin.
+
+        Parameters:
+        quote_currency (str): The quote currency to filter pairs by. Default is 'USDT'.
+
+        Returns:
+        List[str]: A list of trading pair symbols in the format "BASE/QUOTE".
+
+        Raises:
+        ccxt.NetworkError: If there's an issue connecting to the exchange API.
+        """
         markets = self.exchange.load_markets()
         active_spot_pairs = [
             f"{market['base']}/{quote_currency}"
@@ -76,87 +124,130 @@ class CandleDataDownloader:
         ]
         return active_spot_pairs
 
-    def fetch_and_rank_pairs_by_volume(self, days=365, limit=100, quote_currency='USDT'):
-        print("Fetching and ranking pairs by volume...")
+    def fetch_and_rank_pairs_by_volume(self, days: int = 365, limit: int = 100, quote_currency: str = 'USDT') -> List[
+        str]:
+        """
+        Fetch and rank trading pairs by their average quote volume over a specified period.
+
+        Parameters:
+        days (int): The number of days to look back for volume data. Default is 365.
+        limit (int): The maximum number of pairs to return. Default is 100.
+        quote_currency (str): The quote currency to filter pairs by. Default is 'USDT'.
+
+        Returns:
+        List[str]: A list of trading pair symbols, ranked by average quote volume,
+                   limited to the specified number of pairs.
+
+        Raises:
+        ccxt.NetworkError: If there's an issue connecting to the exchange API.
+        ValueError: If the exchange does not support fetching OHLCV data.
+        """
         end_time = datetime.now()
         start_time = end_time - timedelta(days=days)
         markets = self.exchange.load_markets()
-        volume_ranked_pairs = {}
+        volume_ranked_pairs: Dict[str, float] = {}
 
         for symbol, market in markets.items():
-            # Check if the market is active, is a spot market, has the specified quote currency,
-            # and the base currency is not a stablecoin
             if (market['active'] and market['spot'] and market['quote'] == quote_currency and
                     market['base'] not in self.stablecoins):
                 try:
-                    print(f"Fetching OHLCV for {symbol}...")
                     ohlcv = self.exchange.fetch_ohlcv(symbol, '1d',
                                                       since=self.exchange.parse8601(start_time.isoformat()), limit=days)
-                    if ohlcv:
+                    if ohlcv and len(ohlcv) > 0:
                         close_prices = np.array([candle[4] for candle in ohlcv])
                         volumes = np.array([candle[5] for candle in ohlcv])
                         average_volume = average_quote_volume(close_prices, volumes)
                         volume_ranked_pairs[symbol] = average_volume
+                    else:
+                        print(f"No data returned for {symbol} on {self.exchange.name}")
                 except Exception as e:
                     print(f"Failed to fetch or calculate volume for {symbol}: {e}")
 
-        # Sort pairs by average volume and select the top 'limit'
         most_traded_pairs = sorted(volume_ranked_pairs, key=volume_ranked_pairs.get, reverse=True)[:limit]
-        print(
-            f"Top {limit} most traded pairs with quote currency {quote_currency} (excluding stablecoin bases): {most_traded_pairs}")
         return most_traded_pairs
 
-    def download_candles_for_pairs(self, most_traded=False, days=365, limit=100):
+    def download_candles_for_pairs(self, most_traded: bool = False, days: Optional[int] = None,
+                                   limit: Optional[int] = None) -> None:
         """
         Download candles for trading pairs based on specified criteria.
 
-        Args:
-            most_traded (bool): Flag to indicate if the most traded pairs should be used.
-            days (int): Number of days to consider for fetching and ranking pairs by volume.
-            limit (int): Maximum number of pairs to consider for fetching and ranking.
+        This method determines which trading pairs to download data for, based on the
+        configuration of the CandleDataDownloader instance and the provided parameters.
+        It then initiates the download process for each pair and timeframe.
+
+        Parameters:
+        most_traded (bool): If True, fetch and use the most traded pairs. Default is False.
+        days (int, optional): Number of days to consider when ranking pairs by volume.
+                              Only used if most_traded is True.
+        limit (int, optional): Maximum number of pairs to download data for.
+                               Only used if most_traded is True.
 
         Returns:
-            None
+        None
+
+        Raises:
+        ValueError: If most_traded is True but days or limit is not provided.
+        ccxt.NetworkError: If there's an issue connecting to the exchange API.
         """
         if most_traded:
+            if days is None or limit is None:
+                raise ValueError("Both 'days' and 'limit' must be provided when most_traded is True.")
             self.trading_pairs = self.fetch_and_rank_pairs_by_volume(days=days, limit=limit)
+        elif self.all_pairs:
+            self.trading_pairs = self._get_all_pairs()
         else:
-            if self.all_pairs:
-                self.trading_pairs = self.get_all_pairs()
-            else:
-                self.trading_pairs = [f"{base}/{quote}" for base in self.base_symbols for quote in self.quote_symbols]
+            self.trading_pairs = [f"{base}/{quote}" for base in self.base_symbols for quote in self.quote_symbols]
 
-        # Iterate over the trading pairs and timeframes and download candles for each pair
         for pair_name in self.trading_pairs:
             for timeframe in self.timeframes:
-                candledownload = CandleDownloader(exchange_name=self.exchange_name, pair_name=pair_name,
-                                                  timeframe=timeframe, start_time=self.start_time,
-                                                  end_time=self.end_time, batch_size=self.batch_size,
-                                                  output_directory=self.output_directory, output_file=self.output_file,
-                                                  log_to_file=self.log_to_file)
-                candledownload.logger.info(f"Downloading candles for {pair_name}... timeframe: {timeframe}")
+                candledownload = CandleDownloader(
+                    exchange_name=self.exchange_name,
+                    pair_name=pair_name,
+                    timeframe=timeframe,
+                    start_time=self.start_time,
+                    end_time=self.end_time,
+                    batch_size=self.batch_size,
+                    output_directory=self.output_directory,
+                    output_file=self.output_file,
+                    log_to_file=self.log_to_file
+                )
                 candledownload.download_candles()
-                candledownload.logger.info(f"Finished downloading candles for {pair_name} with timeframe {timeframe}\n")
 
 
 class CandleDownloader:
     logger = None
+    TIMEFRAME_TO_SECONDS: Dict[str, int] = {
+        "1m": 60, "3m": 180, "5m": 300, "15m": 900, "30m": 1800,
+        "1h": 3600, "2h": 7200, "3h": 10800, "4h": 14400,
+        "6h": 21600, "12h": 43200, "1d": 86400, "1w": 604800,
+    }
 
     @staticmethod
-    def initialize_logger(log_to_file=False):
+    def initialize_logger(log_to_file: bool = False) -> None:
+        """
+        Initialize the logger for the CandleDownloader class.
+
+        This method sets up a logger with both console and file handlers (if specified).
+        It's designed to be called only once to avoid duplicate handlers.
+
+        Parameters:
+        log_to_file (bool): If True, log messages will also be written to a file.
+                            Default is False.
+
+        Returns:
+        None
+        """
         if CandleDownloader.logger is not None:
             return
 
         logger = logging.getLogger(__name__)
         logger.setLevel(logging.INFO)
 
-        # Console handler
         console_handler = logging.StreamHandler()
         console_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
         console_handler.setFormatter(console_formatter)
         logger.addHandler(console_handler)
 
-        # File handler
         if log_to_file:
             file_handler = logging.FileHandler('candle_downloader.log')
             file_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
@@ -164,27 +255,32 @@ class CandleDownloader:
             logger.addHandler(file_handler)
 
         CandleDownloader.logger = logger
+
+    def __init__(self, exchange_name: str = 'binance', pair_name: str = 'BTC/USDT', timeframe: str = '5m',
+                 start_time: str = '2015-01-01T00:00:00Z', end_time: Optional[str] = None, batch_size: int = 1000,
+                 output_directory: str = './csv_ohlcv', output_file: Optional[str] = None, log_to_file: bool = False):
         """
-        Initializes the object with the specified parameters.
+        Initialize a CandleDownloader instance.
+
+        This method sets up the CandleDownloader with the specified parameters for
+        downloading historical price data (candles) from a cryptocurrency exchange.
 
         Parameters:
-            exchange_name (str): The name of the exchange (default is 'binance').
-            pair_name (str): The trading pair name (default is 'BTC/USDT').
-            timeframe (str): The time frame for the OHLCV data (default is '5m').
-            start_time (str): The start time for fetching the data (default is '2015-01-01T00:00:00Z').
-            end_time (str): The end time for fetching the data (default is None).
-            batch_size (int): The batch size for fetching the data (default is 1000).
-            output_directory (str): The directory for storing the CSV files (default is './csv_ohlcv').
-            output_file (str): The name of the output file (default is None).
-            log_to_file (bool): Flag indicating whether to log to a file (default is False).
+        exchange_name (str): Name of the exchange to use. Default is 'binance'.
+        pair_name (str): Trading pair to download data for. Default is 'BTC/USDT'.
+        timeframe (str): Timeframe of the candles. Default is '5m'.
+        start_time (str): Start time for data download in ISO 8601 format. Default is '2015-01-01T00:00:00Z'.
+        end_time (str, optional): End time for data download in ISO 8601 format. Default is None (current time).
+        batch_size (int): Number of candles to fetch in each API request. Default is 1000.
+        output_directory (str): Directory to save the downloaded data. Default is './csv_ohlcv'.
+        output_file (str, optional): Specific filename for the output. If None, a filename will be generated.
+        log_to_file (bool): Whether to log messages to a file. Default is False.
 
-        Returns:
-            None
+        Raises:
+        ValueError: If the pair_name or timeframe is not supported by the exchange.
+        ccxt.NetworkError: If there's an issue connecting to the exchange API.
         """
 
-    def __init__(self, exchange_name='binance', pair_name='BTC/USDT', timeframe='5m',
-                 start_time='2015-01-01T00:00:00Z', end_time=None, batch_size=1000,
-                 output_directory='./csv_ohlcv', output_file=None, log_to_file=False):
         self.exchange = getattr(ccxt, exchange_name)(
             {
                 "enableRateLimit": True,
@@ -211,7 +307,19 @@ class CandleDownloader:
         if output_file is None:
             self.output_file = self.generate_output_filename()
 
-    def generate_output_filename(self):
+    def generate_output_filename(self) -> str:
+        """
+        Generate a filename for the output CSV file.
+
+        This method creates a directory (if it doesn't exist) and generates a filename
+        based on the trading pair, timeframe, date range, and exchange name.
+
+        Returns:
+        str: The full path of the generated output filename.
+
+        Raises:
+        OSError: If there's an issue creating the output directory.
+        """
         os.makedirs(self.output_directory, exist_ok=True)
         symbol_base = self.pair_name.split('/')[0]
         symbol_quote = self.pair_name.split('/')[1]
@@ -220,56 +328,72 @@ class CandleDownloader:
         filename = f'{symbol_base}_{symbol_quote}_{self.timeframe}_{start_date}_{end_date}_{self.exchange.id}.csv'
         return os.path.join(self.output_directory, filename)
 
-    def write_to_output_file(self, df):
-        if os.path.isfile(self.output_file):
-            with open(self.output_file, mode='a', newline='') as f:
-                if f.tell() == 0:
-                    df.to_csv(f, index=False, header=True)
-                else:
-                    df.to_csv(f, index=False, header=False)
-        else:
-            df.to_csv(self.output_file, index=False, header=True)
+    def write_to_output_file(self, df: pd.DataFrame) -> None:
+        """
+        Write the downloaded candle data to the output CSV file.
 
-    def download_candles(self):
-        # Check if the file already exists
+        This method appends the new data to the existing file if it exists,
+        or creates a new file if it doesn't exist.
+
+        Parameters:
+        df (pd.DataFrame): The DataFrame containing the candle data to be written.
+
+        Raises:
+        IOError: If there's an issue writing to the output file.
+        """
+        df.to_csv(self.output_file, mode='a', index=False, header=not os.path.exists(self.output_file))
+
+    def download_candles(self) -> None:
+        """
+        Download historical candle data for the specified trading pair and timeframe.
+
+        This method fetches candle data in batches, processes it, and writes it to a CSV file.
+        It handles rate limiting and other potential errors during the download process.
+
+        Raises:
+        ccxt.NetworkError: If there's an issue connecting to the exchange API.
+        ccxt.ExchangeError: If there's an error returned by the exchange.
+        IOError: If there's an issue reading from or writing to files.
+        """
         try:
             df = pd.read_csv(self.output_file, usecols=[0], header=None, skiprows=1)
-            self.start_time = int(df.iloc[-1, 0]) + (
-                    self.exchange.parse_timeframe(self.timeframe) * 1000)
-            self.logger.info(f"Resuming from timestamp {self.start_time}...")
+            last_timestamp = int(df.iloc[-1, 0])
+            self.logger.info(f"Last timestamp in file: {last_timestamp}")
         except (FileNotFoundError, pd.errors.EmptyDataError):
-            self.start_time = self.exchange.parse8601(self.start_time)
+            last_timestamp = self.exchange.parse8601(self.start_time)
+            self.logger.info(f"Starting from timestamp: {last_timestamp}")
 
-        # Fetch the candles and write them to the output file
-        while True:
+        current_timestamp = self.get_current_timeframe_timestamp()
+        self.logger.info(f"Current timeframe timestamp: {current_timestamp}")
+
+        if last_timestamp >= current_timestamp:
+            self.logger.info(f"Data for {self.timeframe} is up to date. Skipping download.")
+            return
+
+        self.start_time = last_timestamp + (self.exchange.parse_timeframe(self.timeframe) * 1000)
+
+        while self.start_time < current_timestamp:
             try:
-                # Fetch the candles for the current time range
-                candles = self.exchange.fetch_ohlcv(self.pair_name, self.timeframe, since=self.start_time,
-                                                    limit=self.batch_size)
+                ohlcvs = self.exchange.fetch_ohlcv(self.pair_name, self.timeframe, since=self.start_time,
+                                                   limit=self.batch_size)
 
-                # Convert the fetched candles to a pandas dataframe
-                df = pd.DataFrame(candles, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+                # Drop the last candle as it might be incomplete
+                if ohlcvs:
+                    ohlcvs = ohlcvs[:-1]
 
-                if len(candles) == 0:
+                if not ohlcvs:
+                    self.logger.info(f"No new data available for {self.pair_name}, timeframe: {self.timeframe}")
                     break
 
-                # Append the dataframe to the in-memory buffer
-                self.buffer.append(df)
+                df = pd.DataFrame(ohlcvs, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
 
-                # Update the start time for the next request
-                self.start_time = candles[-1][0] + self.exchange.parse_timeframe(self.timeframe) * 1000
-
-                # Update progress message
                 self.total_candles += len(df)
                 self.total_batches += 1
                 self.logger.info(
-                    f"Downloaded {self.total_candles} candles for {self.pair_name}, timeframe: {self.timeframe} in {self.total_batches} batches...")
+                    f"Downloaded {len(df)} candles for {self.pair_name}, timeframe: {self.timeframe} in batch {self.total_batches}")
 
-                # Write the accumulated data to the output file
                 self.write_to_output_file(df)
-
-                # Clear the buffer
-                self.buffer = []
+                self.start_time = ohlcvs[-1][0] + self.exchange.parse_timeframe(self.timeframe) * 1000
 
             except (ccxt.RateLimitExceeded, ccxt.DDoSProtection) as e:
                 self.logger.warning(f"Rate limit exceeded: {e}. Retrying in 60 seconds...")
@@ -278,12 +402,23 @@ class CandleDownloader:
                 self.logger.error(f"Exception occurred: {e}. Retrying in 60 seconds...")
                 time.sleep(60)
 
-                # Write the remaining data in the buffer to the output file
-                if len(self.buffer) > 0:
-                    df = pd.concat(self.buffer)
-                    self.write_to_output_file(df)
-                    self.buffer = []
+        if self.total_candles == 0:
+            self.logger.info(f"No new data downloaded for {self.pair_name}, timeframe: {self.timeframe}")
+        else:
+            self.logger.info(
+                f'Download complete. Total new candles: {self.total_candles}, Total batches: {self.total_batches}, Output file: {self.output_file}')
 
-        # Print a message when the script has finished
-        self.logger.info(
-            f'Download complete. Total candles: {self.total_candles}, Total batches: {self.total_batches}, Output file: {self.output_file}')
+    def get_current_timeframe_timestamp(self) -> int:
+        now = datetime.now(timezone.utc)
+        if self.timeframe == '1w':
+            # Align to the start of the week (Monday)
+            start_of_week = now - timedelta(days=now.weekday())
+            return int(start_of_week.replace(hour=0, minute=0, second=0, microsecond=0,
+                                             tzinfo=timezone.utc).timestamp() * 1000)
+        elif self.timeframe == '1d':
+            # Align to the start of the day
+            return int(now.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=timezone.utc).timestamp() * 1000)
+        else:
+            # For other timeframes, align to the start of the current timeframe period
+            seconds = self.TIMEFRAME_TO_SECONDS[self.timeframe]
+            return int((now.timestamp() // seconds) * seconds * 1000)
