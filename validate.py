@@ -9,7 +9,7 @@ from typing import List, Optional, Dict, Any
 import ccxt
 import pandas as pd
 
-from classdir.candledownloader import TimeframeHandler, LoggerManager
+from src.candledownloader import TimeframeManager, LoggerManager
 
 
 class MultiExchangeGapFiller:
@@ -85,10 +85,8 @@ class ValidationRunner:
         self.logger = self._setup_logger()
 
     def _setup_logger(self) -> logging.Logger:
-        log_file = os.path.join(
-            LoggerManager.LOG_DIR,
-            f'validation_runner_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log'
-        )
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_file = f'validation_runner_{timestamp}.log'
 
         return LoggerManager.setup_logger(
             f"{__name__}.ValidationRunner",
@@ -117,7 +115,7 @@ class ValidationRunner:
 
             if timeframe:
                 print(f"\nValidating {file}...")
-                validator = TimeframeHandler(file_path, timeframe)
+                validator = TimeframeManager(file_path, timeframe)
                 result = validator.validate()
 
                 pair_name = self._extract_pair_name(file)
@@ -191,7 +189,7 @@ class ValidationRunner:
         
         for gap in gaps_list:
             gap_filled = False
-            interval_ms = TimeframeHandler.get_timeframe_in_seconds(timeframe) * 1000
+            interval_ms = TimeframeManager.get_timeframe_in_seconds(timeframe) * 1000
             num_candles = (gap['end'] - gap['start']) // interval_ms
             gap_start_year = datetime.fromtimestamp(gap['start'] / 1000).year
 
