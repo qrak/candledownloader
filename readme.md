@@ -118,8 +118,8 @@ Before running the application, you need to set up your `config.cfg` file with t
 exchange_name = binance  # Currently, kucoin is not working due to API issues
 
 # Trading Pair Selection
-all_pairs = True
-base_symbols = FET  # Currently set to FET, but can be changed to other base symbols like BTC, ETH, etc.
+all_pairs = True  # Set to True to download all available trading pairs
+ase_symbols = ACM,ADA,ALGO,ATOM,AVAX,BCC,BCH,BNB,DOGE,DOT,EOS,ETC,ETH,FIL,FTM,GALA,ICX,INJ,IOTA,LINK # Example usage of multiple symbols
 quote_symbols = USDT
 
 # Time Configuration
