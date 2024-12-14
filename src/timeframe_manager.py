@@ -3,6 +3,7 @@ from typing import Dict, List, Any
 import pandas as pd
 
 from src.logger_manager import LoggerManager
+from src.config import Config
 
 
 class TimeframeManager:
@@ -34,9 +35,10 @@ class TimeframeManager:
         self.timeframe = timeframe
         self.expected_interval = self.TIMEFRAME_TO_SECONDS[timeframe] * 1000
         self.df = pd.read_csv(csv_file)
+        self.config = Config()
         self.logger = LoggerManager.setup_logger(
             f"{__name__}.TimeframeHandler",
-            True,
+            self.config.log_to_file,
             f'timeframe_handler_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log'
         )
 

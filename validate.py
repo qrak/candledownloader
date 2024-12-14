@@ -10,12 +10,11 @@ import ccxt
 import pandas as pd
 
 from src.candledownloader import TimeframeManager, LoggerManager
-
+from src.config import Config
 
 class MultiExchangeGapFiller:
     def __init__(self) -> None:
         self.exchanges = {
-            # Certified Exchanges (Most Reliable)
             'binance': ccxt.binance({'enableRateLimit': True}),
             'binanceusdm': ccxt.binanceusdm({'enableRateLimit': True}),
             'binanceus': ccxt.binanceus({'enableRateLimit': True}),
@@ -27,14 +26,12 @@ class MultiExchangeGapFiller:
             'coinex': ccxt.coinex({'enableRateLimit': True}),
             'cryptocom': ccxt.cryptocom({'enableRateLimit': True}),
             'gate': ccxt.gate({'enableRateLimit': True}),
-            'htx': ccxt.htx({'enableRateLimit': True}),  # Former Huobi
+            'htx': ccxt.htx({'enableRateLimit': True}),
             'kucoin': ccxt.kucoin({'enableRateLimit': True}),
             'kucoinfutures': ccxt.kucoinfutures({'enableRateLimit': True}),
             'mexc': ccxt.mexc({'enableRateLimit': True}),
             'okx': ccxt.okx({'enableRateLimit': True}),
             'woo': ccxt.woo({'enableRateLimit': True}),
-
-            # Other Major Exchanges
             'ascendex': ccxt.ascendex({'enableRateLimit': True}),
             'bitfinex': ccxt.bitfinex({'enableRateLimit': True}),
             'bitstamp': ccxt.bitstamp({'enableRateLimit': True}),
@@ -82,6 +79,7 @@ class ValidationRunner:
         self.csv_files = self._get_csv_files()
         self.validation_results: Dict[str, Dict] = {}
         self.gap_filler = MultiExchangeGapFiller()
+        self.config = Config()
         self.logger = self._setup_logger()
 
     def _setup_logger(self) -> logging.Logger:
@@ -90,7 +88,7 @@ class ValidationRunner:
 
         return LoggerManager.setup_logger(
             f"{__name__}.ValidationRunner",
-            True,
+            self.config.log_to_file,
             log_file
         )
 
@@ -123,7 +121,7 @@ class ValidationRunner:
                     'pair': pair_name,
                     'timeframe': timeframe,
                     'gaps_count': result['gaps_count'],
-                    'gaps': result['gaps'],  # Store the full gaps information
+                    'gaps': result['gaps'],
                     'invalid_intervals': result['invalid_intervals_count']
                 }
 
@@ -183,9 +181,8 @@ class ValidationRunner:
 
     def _fill_file_gaps(self, file: str, pair: str, timeframe: str,
                         gaps_list: List[Dict[str, int]]) -> None:
-        # Use all available exchanges
         exchanges = list(self.gap_filler.exchanges.keys())
-        file_path = os.path.join(self.directory, file)  # Get full file path
+        file_path = os.path.join(self.directory, file)
         
         for gap in gaps_list:
             gap_filled = False
@@ -193,7 +190,6 @@ class ValidationRunner:
             num_candles = (gap['end'] - gap['start']) // interval_ms
             gap_start_year = datetime.fromtimestamp(gap['start'] / 1000).year
 
-            # More lenient coverage threshold for historical gaps
             coverage_threshold = 50 if gap_start_year < 2020 else 80
 
             self.logger.info(f"\nAttempting to fill gap from {datetime.fromtimestamp(gap['start'] / 1000)} "
@@ -212,13 +208,11 @@ class ValidationRunner:
                     current_start = gap['start']
                     exchange_candles = []
 
-                    # Fetch candles in chunks
                     while current_start < gap['end']:
                         try:
-                            # Calculate remaining candles needed
                             remaining_ms = gap['end'] - current_start
                             remaining_candles = remaining_ms // interval_ms
-                            chunk_size = min(remaining_candles, 500)  # Use smaller chunks
+                            chunk_size = min(remaining_candles, 500)
 
                             ohlcv = self.gap_filler.fetch_candles(
                                 exchange_name,
@@ -232,7 +226,6 @@ class ValidationRunner:
                                 self.logger.warning(f"No data returned from {exchange_name}")
                                 break
 
-                            # Filter valid candles within gap range
                             valid_candles = [
                                 candle for candle in ohlcv
                                 if gap['start'] <= candle[0] <= gap['end']
@@ -244,8 +237,7 @@ class ValidationRunner:
                             else:
                                 current_start += interval_ms * chunk_size
 
-                            # Respect rate limits
-                            time.sleep(exchange.rateLimit / 1000 * 2)  # Double the rate limit to be safe
+                            time.sleep(exchange.rateLimit / 1000 * 2)
 
                         except ccxt.RateLimitExceeded:
                             self.logger.warning(f"Rate limit exceeded for {exchange_name}, waiting 30 seconds")
@@ -256,14 +248,12 @@ class ValidationRunner:
                             break
 
                     if exchange_candles:
-                        # Process candles from this exchange
                         df = pd.DataFrame(
                             exchange_candles,
                             columns=['timestamp', 'open', 'high', 'low', 'close', 'volume']
                         )
                         df = df.drop_duplicates(subset=['timestamp']).sort_values('timestamp')
 
-                        # Verify gap coverage without any interpolation
                         expected_timestamps = set(range(
                             gap['start'], 
                             gap['end'] + interval_ms, 
@@ -276,11 +266,10 @@ class ValidationRunner:
                         self.logger.info(f"Gap coverage from {exchange_name}: {coverage:.2f}% ({len(missing_timestamps)} missing candles)")
 
                         if coverage >= coverage_threshold:
-                            # Update the CSV file with new data
                             self._update_csv_with_gap_data(file_path, df.values.tolist())
                             gap_filled = True
                             self.logger.info(f"Successfully filled gap with {coverage:.2f}% coverage using {exchange_name}")
-                            break  # Stop trying other exchanges
+                            break
 
                 except Exception as e:
                     self.logger.error(f"Error with exchange {exchange_name}: {str(e)}")
@@ -307,8 +296,10 @@ class ValidationRunner:
         try:
             parts = filename.split('_')
             for part in parts:
-                if part.endswith(('m', 'h', 'd', 'w')):
-                    return part
+                part_lower = part.lower()
+                if part_lower.endswith(('m', 'h', 'd', 'w')):
+                    if part_lower in TimeframeManager.TIMEFRAME_TO_SECONDS:
+                        return part_lower
             return None
         except Exception:
             return None
