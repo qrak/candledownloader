@@ -158,13 +158,20 @@ class CandleDownloader:
 
     def download_candles(self):
         try:
-            self.logger.info(f"Starting download for {self.pair_name} ({self.timeframe})")
-            self._download_new_data()
+            start_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             self.logger.info(
-                f"Download completed for {self.pair_name} ({self.timeframe}). "
-                f"Total candles: {self.total_candles}, "
-                f"Total batches: {self.total_batches}"
+                f"Starting download for {self.pair_name} ({self.timeframe}) at {start_time}"
             )
+            self._download_new_data()
+            
+            if self.total_candles > 0:
+                avg_candles_per_batch = self.total_candles / self.total_batches
+                self.logger.info(
+                    f"Download completed for {self.pair_name} ({self.timeframe}). "
+                    f"Total candles: {self.total_candles}, "
+                    f"Total batches: {self.total_batches}, "
+                    f"Average candles per batch: {int(avg_candles_per_batch)}"
+                )
             return True
         except Exception as e:
             self.logger.error(f"Error downloading candles: {str(e)}")
@@ -182,6 +189,16 @@ class CandleDownloader:
 
         start_time = last_timestamp + (
                 self.exchange.exchange.parse_timeframe(self.timeframe) * 1000
+        )
+
+        timeframe_ms = self.exchange.exchange.parse_timeframe(self.timeframe) * 1000
+        total_time_range = target_timestamp - start_time
+        estimated_total_batches = max(1, int(total_time_range / (timeframe_ms * self.batch_size)))
+
+        self.logger.info(
+            f"Starting download from {datetime.fromtimestamp(start_time/1000).strftime('%Y-%m-%d %H:%M:%S')} "
+            f"to {datetime.fromtimestamp(target_timestamp/1000).strftime('%Y-%m-%d %H:%M:%S')}. "
+            f"Estimated batches to download: {estimated_total_batches}"
         )
 
         while start_time < target_timestamp:
@@ -211,14 +228,16 @@ class CandleDownloader:
 
                 self.total_candles += len(ohlcvs)
                 self.total_batches += 1
+                
+                current_time = datetime.fromtimestamp(ohlcvs[-1][0]/1000).strftime('%Y-%m-%d %H:%M:%S')
+                progress_percentage = min(100, round((self.total_batches / estimated_total_batches) * 100, 2))
                 self.logger.info(
-                    f"Downloaded {len(ohlcvs)} candles for {self.pair_name}, "
-                    f"timeframe: {self.timeframe} in batch {self.total_batches}"
+                    f"Batch {self.total_batches}/{estimated_total_batches} ({progress_percentage}%) - "
+                    f"Downloaded {len(ohlcvs)} candles for {self.pair_name} "
+                    f"(timeframe: {self.timeframe}). Latest candle time: {current_time}"
                 )
 
-                start_time = ohlcvs[-1][0] + (
-                        self.exchange.exchange.parse_timeframe(self.timeframe) * 1000
-                )
+                start_time = ohlcvs[-1][0] + timeframe_ms
 
             except (ccxt.RateLimitExceeded, ccxt.DDoSProtection) as e:
                 self.logger.warning(f"Rate limit exceeded: {e}. Retrying in 60 seconds...")
@@ -237,7 +256,10 @@ class CandleDownloader:
                 f"No new data downloaded for {self.pair_name}, timeframe: {self.timeframe}"
             )
         else:
+            completion_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             self.logger.info(
-                f'Download complete. Total new candles: {self.total_candles}, '
-                f'Total batches: {self.total_batches}, Output file: {self.output_file}'
+                f'Download complete at {completion_time}. '
+                f'Total new candles: {self.total_candles}, '
+                f'Total batches: {self.total_batches}/{estimated_total_batches}, '
+                f'Output file: {self.output_file}'
             )
