@@ -1,87 +1,112 @@
-# Candlestick Data Downloader
+# Candle Downloader
 
 ## Overview
+Candle Downloader is a Python application designed to download OHLCV (Open, High, Low, Close, Volume) data from multiple cryptocurrency exchanges. The application validates the data and fills in gaps where necessary.
 
-This Python script downloads historical candlestick data from various cryptocurrency exchanges. It uses the `CandleDataDownloader` class for efficient and flexible data fetching. The script now supports reading configuration from a `config.cfg` file for easier customization. The data is saved into CSV files, making it easy for subsequent analysis and visualization. If the program is terminated, the progress is saved and can be resumed upon restart.
+## Features
+- Downloads historical candlestick data from various cryptocurrency exchanges
+- Supports multiple timeframes from 1 minute to 1 week
+- Automatic gap detection and filling
+- Efficient data buffering and CSV file management
+- Comprehensive logging system
+- Data validation and verification tools
 
-## Table of Contents
+## Project Structure
+- **src/**: Contains the main source code for the application.
+  - `candledownloader.py`: Main functionality for downloading candle data.
+  - `config.py`: Configuration settings handler.
+  - `data_manager.py`: Manages data operations and CSV file handling.
+  - `logger_manager.py`: Handles logging with customizable formats.
+  - `timeframe_manager.py`: Manages different timeframes and timestamp calculations.
 
-- [Requirements](#requirements)
-- [Installation](#installation)
-- [Usage](#usage)
-  - [Configuration](#configuration)
-  - [Advanced Configuration](#advanced-configuration)
-  - [Running the Script](#running-the-script)
-- [Output Format](#output-format)
-- [Dependencies](#dependencies)
-- [License](#license)
-
-## Requirements
-
-- Python 3.8+
-- `ccxt` library
-- `pandas` library
-- `ConfigParser` library
-
-## Installation
-
-1. Clone the repository to your local machine: `git clone https://github.com/qrak/candledownloader.git`.
-2. Navigate to the `candledownloader` directory.
-3. Create a new virtual environment: `python -m venv env`.
-4. Activate the virtual environment:
-   - On macOS and Linux: `source env/bin/activate`
-   - On Windows: `env\Scripts\activate`
-5. Install the required packages: `pip install -r requirements.txt`.
+## Supported Timeframes
+The application supports the following timeframes:
+- **Minutes**: 1m, 3m, 5m, 15m, 30m
+- **Hours**: 1h, 2h, 3h, 4h, 6h, 12h
+- **Days/Weeks**: 1d, 1w
 
 ## Usage
 
 ### Configuration
+Before running the application, you need to set up your `config.cfg` file with the following parameters:
 
-Edit the `config.cfg` file for basic configuration settings:
+```ini
+[DEFAULT]
+# Name of the exchange (e.g., binance)
+exchange_name = binance
 
-- `all_pairs`: Set to `True` for downloading data for all trading pairs, or `False` for specific pairs.
-- `base_symbols`: Modify this comma-separated list to include the desired base currencies if `all_pairs` is set to `False`.
-- `quote_symbols`: Comma-separated list for quote currencies.
-- `timeframes`: Comma-separated list for different timeframes.
-- `enable_logging`: Toggle to `True` for logging.
+# Set to True to download data for all trading pairs, False for specific pairs
+all_pairs = True
 
-### Advanced Configuration
+# If all_pairs = False, specify the trading pairs (comma-separated)
+base_symbols = BTC,ETH
+quote_symbols = USDT
 
-Advanced options can also be set via the `config.cfg` file, all variables are optional:
+# Timeframes for the candle data (comma-separated)
+timeframes = 1h,4h
 
-- `start_time`: Specify the start time in ISO 8601 format for historical data download.
-- `end_time`: Specify the end time in ISO 8601 format for historical data download.
-- `batch_size`: Number of records fetched in each request.
-- `output_directory`: Directory to save CSV files.
-- `output_file`: Optionally, specify an output file name.
-- `enable_logging`: Enable output logging to file
+# Start time for data collection (ISO 8601 format)
+start_time = 2023-01-01T00:00:00Z
 
-### Running the Script
+# Optional: End time for data collection
+end_time = 2023-12-31T23:59:59Z
 
-Run the script using:
+# Optional: Number of records per request
+batch_size = 1000
 
+# Optional: Directory for saving CSV files
+output_directory = ./csv_ohlcv
+
+# Optional: Specific output filename
+output_file = 
+
+# Optional: Enable logging to file
+log_to_file = False
+```
+
+### Running the Application
+To run the application:
 ```bash
 python main.py
 ```
+This will read the configuration from `config.cfg` and download the candle data according to your settings.
 
-## Output Format
+### Output Format
+The downloaded data is saved in CSV format with the following columns:
+- `timestamp`: Unix timestamp in milliseconds
+- `open`: Opening price
+- `high`: Highest price
+- `low`: Lowest price
+- `close`: Closing price
+- `volume`: Trading volume
 
-The script outputs data into CSV files with the following columns:
+### Data Validation
+To validate the downloaded OHLCV data files, use `validate.py`:
+```bash
+python validate.py --directory <path_to_directory> --timeframe <timeframe> --pair <currency_pair>
+```
 
-- `timestamp`
-- `open`
-- `high`
-- `low`
-- `close`
-- `volume`
+#### Validation Arguments
+- `--directory` or `-d`: Directory containing CSV files (default: './csv_ohlcv')
+- `--timeframe` or `-t`: Specific timeframe to validate
+- `--pair` or `-p`: Trading pair to validate (e.g., BTC_USDT)
+- `--fill-gaps` or `-f`: Attempt to fill gaps in the data
 
-## Dependencies
+## Logging
+The application includes a comprehensive logging system:
+- Logs are stored in the `logs` directory
+- Default format: `YYYY-MM-DD HH:MM:SS message`
+- Configurable log levels and formats
+- Separate log files for different components
 
-- `ccxt`: Library for cryptocurrency trading.
-- `pandas`: Data manipulation and analysis.
-- `ConfigParser`: Configuration parsing library.
-- `logging`: Standard Python logging library.
+## Requirements
+Ensure you have the necessary dependencies installed:
+```bash
+pip install -r requirements.txt
+```
+
+## Contributing
+Feel free to contribute to the project by submitting issues or pull requests.
 
 ## License
-
 This project is licensed under the MIT License.
