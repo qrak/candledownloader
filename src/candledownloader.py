@@ -172,9 +172,9 @@ class CandleDownloader:
 
     def _download_new_data(self):
         last_timestamp = self.data_manager.get_last_timestamp() or self.start_time
-        current_timestamp = TimeframeManager.get_current_timestamp(self.timeframe)
+        target_timestamp = self.end_time if self.end_time else TimeframeManager.get_current_timestamp(self.timeframe)
 
-        if last_timestamp >= current_timestamp:
+        if last_timestamp >= target_timestamp:
             self.logger.info(
                 f"Data for {self.pair_name} {self.timeframe} is up to date. Skipping download."
             )
@@ -184,7 +184,7 @@ class CandleDownloader:
                 self.exchange.exchange.parse_timeframe(self.timeframe) * 1000
         )
 
-        while start_time < current_timestamp:
+        while start_time < target_timestamp:
             try:
                 ohlcvs = self.exchange.fetch_ohlcv(
                     self.pair_name, self.timeframe,
@@ -195,6 +195,12 @@ class CandleDownloader:
                     self.logger.error(
                         f"Failed to fetch {self.pair_name}, timeframe: {self.timeframe}"
                     )
+                    break
+
+                if self.end_time:
+                    ohlcvs = [candle for candle in ohlcvs if candle[0] <= self.end_time]
+
+                if not ohlcvs:
                     break
 
                 ohlcvs = ohlcvs[:-1]
@@ -217,12 +223,14 @@ class CandleDownloader:
             except (ccxt.RateLimitExceeded, ccxt.DDoSProtection) as e:
                 self.logger.warning(f"Rate limit exceeded: {e}. Retrying in 60 seconds...")
                 time.sleep(60)
-                self._download_new_data()
+                continue
             except ccxt.BaseError as e:
                 self.logger.error(f"Exception occurred: {e}. Retrying in 60 seconds...")
                 time.sleep(60)
+                continue
 
-        self.data_manager.write_buffer()
+        if self.data_manager.data_buffer:
+            self.data_manager.write_buffer()
 
         if self.total_candles == 0:
             self.logger.info(
