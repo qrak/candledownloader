@@ -1,5 +1,7 @@
 import os
 import time
+import sys
+import logging
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Any
 
@@ -11,6 +13,46 @@ from src.data_manager import DataManager
 from src.logger_manager import LoggerManager
 from src.timeframe_manager import TimeframeManager
 from utils.average_quote_vol import AverageVolumeCalculator
+
+
+class ProgressBar:
+    def __init__(self, total: int, prefix: str = '', length: int = 30):
+        self.total = total
+        self.prefix = prefix
+        self.length = length
+        self.current = 0
+        self.start_time = time.time()
+        self.last_update_time = 0
+        self.update_interval = 0.5
+        
+    def update(self, current: int) -> None:
+        self.current = current
+        
+        # Throttle visual updates to avoid excessive screen refresh
+        current_time = time.time()
+        if current_time - self.last_update_time < self.update_interval and current < self.total:
+            return
+            
+        self.last_update_time = current_time
+        progress = min(1.0, current / self.total)
+        blocks = int(self.length * progress)
+        bar = '█' * blocks + '░' * (self.length - blocks)
+        elapsed = current_time - self.start_time
+        
+        if progress > 0:
+            eta = (elapsed / progress) * (1 - progress)
+            eta_str = f"ETA: {timedelta(seconds=int(eta))}"
+        else:
+            eta_str = "ETA: calculating..."
+            
+        sys.stdout.write(f"\r{self.prefix} |{bar}| {int(progress*100)}% {current}/{self.total} {eta_str}")
+        sys.stdout.flush()
+        
+    def finish(self) -> None:
+        elapsed = time.time() - self.start_time
+        sys.stdout.write(f"\r{self.prefix} |{'█' * self.length}| 100% {self.total}/{self.total} Complete in {timedelta(seconds=int(elapsed))}")
+        sys.stdout.write("\n") 
+        sys.stdout.flush()
 
 
 class ExchangeInterface:
@@ -194,72 +236,143 @@ class CandleDownloader:
         timeframe_ms = self.exchange.exchange.parse_timeframe(self.timeframe) * 1000
         total_time_range = target_timestamp - start_time
         estimated_total_batches = max(1, int(total_time_range / (timeframe_ms * self.batch_size)))
-
+        
+        print(f"\nDownloading {self.pair_name} ({self.timeframe}) from "
+              f"{datetime.fromtimestamp(start_time/1000).strftime('%Y-%m-%d %H:%M:%S')} "
+              f"to {datetime.fromtimestamp(target_timestamp/1000).strftime('%Y-%m-%d %H:%M:%S')}")
+              
         self.logger.info(
             f"Starting download from {datetime.fromtimestamp(start_time/1000).strftime('%Y-%m-%d %H:%M:%S')} "
             f"to {datetime.fromtimestamp(target_timestamp/1000).strftime('%Y-%m-%d %H:%M:%S')}. "
             f"Estimated batches to download: {estimated_total_batches}"
         )
+        
+        progress = ProgressBar(
+            estimated_total_batches, 
+            prefix=f"Downloading {self.pair_name} ({self.timeframe})"
+        )
 
-        while start_time < target_timestamp:
-            try:
-                ohlcvs = self.exchange.fetch_ohlcv(
-                    self.pair_name, self.timeframe,
-                    since=start_time, limit=self.batch_size
-                )
+        logger_level = self.logger.level
+        console_handlers = []
 
-                if not ohlcvs:
-                    self.logger.error(
-                        f"Failed to fetch {self.pair_name}, timeframe: {self.timeframe}"
+        for handler in self.logger.handlers:
+            if isinstance(handler, logging.StreamHandler) and not isinstance(handler, logging.FileHandler):
+                console_handlers.append(handler)
+                handler.setLevel(logging.CRITICAL)
+        
+        retry_count = 0
+        max_retries = 5
+        
+        try:
+            while start_time < target_timestamp:
+                try:
+                    ohlcvs = self.exchange.fetch_ohlcv(
+                        self.pair_name, self.timeframe,
+                        since=start_time, limit=self.batch_size
                     )
+
+                    if not ohlcvs:
+                        self.logger.error(
+                            f"Failed to fetch {self.pair_name}, timeframe: {self.timeframe}"
+                        )
+                        break
+
+                    if self.end_time:
+                        ohlcvs = [candle for candle in ohlcvs if candle[0] <= self.end_time]
+
+                    if not ohlcvs:
+                        break
+
+                    ohlcvs = ohlcvs[:-1]
+                    self.data_manager.data_buffer.extend(ohlcvs)
+
+                    if len(self.data_manager.data_buffer) >= self.buffer_size:
+                        self.data_manager.write_buffer()
+
+                    self.total_candles += len(ohlcvs)
+                    self.total_batches += 1
+                    
+                    progress.update(self.total_batches)
+                    
+                    current_time = datetime.fromtimestamp(ohlcvs[-1][0]/1000).strftime('%Y-%m-%d %H:%M:%S')
+                    self.logger.info(
+                        f"Batch {self.total_batches}/{estimated_total_batches} - "
+                        f"Downloaded {len(ohlcvs)} candles for {self.pair_name} "
+                        f"(timeframe: {self.timeframe}). Latest candle time: {current_time}"
+                    )
+
+                    start_time = ohlcvs[-1][0] + timeframe_ms
+                    retry_count = 0
+
+                except (ccxt.RateLimitExceeded, ccxt.DDoSProtection) as e:
+                    retry_count += 1
+                    wait_time = min(60 * retry_count, 300)
+                    
+                    # Clear current line and show error
+                    sys.stdout.write("\r" + " " * 100 + "\r")
+                    print(f"Rate limit exceeded. Retrying in {wait_time} seconds... (Attempt {retry_count}/{max_retries})")
+                    
+                    self.logger.warning(f"Rate limit exceeded: {e}. Retrying in {wait_time} seconds... (Attempt {retry_count}/{max_retries})")
+                    
+                    if retry_count >= max_retries:
+                        self.logger.error(f"Maximum retries reached. Skipping to next timeframe.")
+                        break
+                        
+                    time.sleep(wait_time)
+                    progress.update(self.total_batches)
+                    continue
+                    
+                except ccxt.BaseError as e:
+                    retry_count += 1
+                    wait_time = min(60 * retry_count, 300)
+                    
+                    # Clear current line and show error
+                    sys.stdout.write("\r" + " " * 100 + "\r")
+                    print(f"Exchange error occurred: {str(e)[:50]}... Retrying in {wait_time} seconds...")
+                    
+                    self.logger.error(f"Exception occurred: {e}. Retrying in {wait_time} seconds... (Attempt {retry_count}/{max_retries})")
+                    
+                    if retry_count >= max_retries:
+                        self.logger.error(f"Maximum retries reached. Skipping to next timeframe.")
+                        break
+                    
+                    time.sleep(wait_time)
+                    progress.update(self.total_batches)
+                    continue
+                    
+                except Exception as e:
+                    # Clear current line and show error
+                    sys.stdout.write("\r" + " " * 100 + "\r")
+                    print(f"Unexpected error: {str(e)[:50]}... Skipping to next timeframe.")
+                    
+                    self.logger.error(f"Unexpected error: {str(e)}. Skipping to next timeframe.")
                     break
 
-                if self.end_time:
-                    ohlcvs = [candle for candle in ohlcvs if candle[0] <= self.end_time]
+            progress.finish()
+            
+            if self.data_manager.data_buffer:
+                self.data_manager.write_buffer()
 
-                if not ohlcvs:
-                    break
-
-                ohlcvs = ohlcvs[:-1]
-                self.data_manager.data_buffer.extend(ohlcvs)
-
-                if len(self.data_manager.data_buffer) >= self.buffer_size:
-                    self.data_manager.write_buffer()
-
-                self.total_candles += len(ohlcvs)
-                self.total_batches += 1
-                
-                current_time = datetime.fromtimestamp(ohlcvs[-1][0]/1000).strftime('%Y-%m-%d %H:%M:%S')
-                progress_percentage = min(100, round((self.total_batches / estimated_total_batches) * 100, 2))
+            if self.total_candles == 0:
+                print(f"No new data downloaded for {self.pair_name}, timeframe: {self.timeframe}")
                 self.logger.info(
-                    f"Batch {self.total_batches}/{estimated_total_batches} ({progress_percentage}%) - "
-                    f"Downloaded {len(ohlcvs)} candles for {self.pair_name} "
-                    f"(timeframe: {self.timeframe}). Latest candle time: {current_time}"
+                    f"No new data downloaded for {self.pair_name}, timeframe: {self.timeframe}"
                 )
-
-                start_time = ohlcvs[-1][0] + timeframe_ms
-
-            except (ccxt.RateLimitExceeded, ccxt.DDoSProtection) as e:
-                self.logger.warning(f"Rate limit exceeded: {e}. Retrying in 60 seconds...")
-                time.sleep(60)
-                continue
-            except ccxt.BaseError as e:
-                self.logger.error(f"Exception occurred: {e}. Retrying in 60 seconds...")
-                time.sleep(60)
-                continue
-
-        if self.data_manager.data_buffer:
-            self.data_manager.write_buffer()
-
-        if self.total_candles == 0:
-            self.logger.info(
-                f"No new data downloaded for {self.pair_name}, timeframe: {self.timeframe}"
-            )
-        else:
-            completion_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            self.logger.info(
-                f'Download complete at {completion_time}. '
-                f'Total new candles: {self.total_candles}, '
-                f'Total batches: {self.total_batches}/{estimated_total_batches}, '
-                f'Output file: {self.output_file}'
-            )
+            else:
+                completion_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                total_msg = (
+                    f'Download complete. Total new candles: {self.total_candles}, '
+                    f'Batches: {self.total_batches}/{estimated_total_batches}'
+                )
+                print(f"\n{total_msg}")
+                
+                self.logger.info(
+                    f'Download complete at {completion_time}. '
+                    f'Total new candles: {self.total_candles}, '
+                    f'Total batches: {self.total_batches}/{estimated_total_batches}, '
+                    f'Output file: {self.output_file}'
+                )
+        finally:
+            # Restore console handlers' log levels
+            for handler in console_handlers:
+                handler.setLevel(logger_level)

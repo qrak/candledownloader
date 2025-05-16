@@ -1,11 +1,18 @@
 from configparser import ConfigParser
-from typing import List, Optional
+from typing import List, Optional, Any, Dict
 
 
 class Config:
     def __init__(self, config_file: str = 'config.cfg'):
         self.cfg = ConfigParser()
         self.cfg.read(config_file)
+        self._overrides: Dict[str, Any] = {}
+
+    def override(self, key: str, value: Any) -> None:
+        self._overrides[key] = value
+
+    def set_all_pairs(self, value: bool) -> None:
+        self._overrides['all_pairs'] = value
 
     @property
     def exchange_name(self) -> str:
@@ -13,19 +20,19 @@ class Config:
 
     @property
     def all_pairs(self) -> bool:
-        return self.cfg.getboolean('DEFAULT', 'all_pairs')
+        return self._overrides.get('all_pairs', self.cfg.getboolean('DEFAULT', 'all_pairs'))
 
     @property
     def base_symbols(self) -> List[str]:
-        return self.cfg.get('DEFAULT', 'base_symbols').split(',')
+        return self._overrides.get('base_symbols', self.cfg.get('DEFAULT', 'base_symbols').split(','))
 
     @property
     def quote_symbols(self) -> List[str]:
-        return self.cfg.get('DEFAULT', 'quote_symbols').split(',')
+        return self._overrides.get('quote_symbols', self.cfg.get('DEFAULT', 'quote_symbols').split(','))
 
     @property
     def timeframes(self) -> List[str]:
-        return self.cfg.get('DEFAULT', 'timeframes').split(',')
+        return self._overrides.get('timeframes', self.cfg.get('DEFAULT', 'timeframes').split(','))
 
     @property
     def start_time(self) -> str:
