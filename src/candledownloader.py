@@ -1,7 +1,6 @@
 import os
 import time
 import sys
-import logging
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Any
 
@@ -10,31 +9,31 @@ import numpy as np
 
 from src.config import Config
 from src.data_manager import DataManager
-from src.logger_manager import LoggerManager
 from src.timeframe_manager import TimeframeManager
 from utils.average_quote_vol import AverageVolumeCalculator
 
 
+# Fix the progress bar to prevent it from moving down
 class ProgressBar:
     def __init__(self, total: int, prefix: str = '', length: int = 30):
-        self.total = total
+        self.total = max(1, total)  # Prevent division by zero
         self.prefix = prefix
         self.length = length
         self.current = 0
         self.start_time = time.time()
         self.last_update_time = 0
-        self.update_interval = 0.5
+        self.update_interval = 0.2  # Slightly faster updates
         
     def update(self, current: int) -> None:
-        self.current = current
+        self.current = min(current, self.total)  # Prevent overflow
         
-        # Throttle visual updates to avoid excessive screen refresh
+        # Throttle visual updates to avoid flickering
         current_time = time.time()
         if current_time - self.last_update_time < self.update_interval and current < self.total:
             return
             
         self.last_update_time = current_time
-        progress = min(1.0, current / self.total)
+        progress = self.current / self.total
         blocks = int(self.length * progress)
         bar = '█' * blocks + '░' * (self.length - blocks)
         elapsed = current_time - self.start_time
@@ -44,15 +43,40 @@ class ProgressBar:
             eta_str = f"ETA: {timedelta(seconds=int(eta))}"
         else:
             eta_str = "ETA: calculating..."
+        
+        # Simplified output - avoid using \033[K which can cause flickering
+        output = f"\r{self.prefix} |{bar}| {int(progress*100)}% {current}/{self.total} {eta_str}"
+        
+        # Pad with spaces to ensure overwriting of previous longer lines
+        terminal_width = self._get_terminal_width()
+        if terminal_width > 0:
+            padding = ' ' * max(0, terminal_width - len(output) - 5)
+            output += padding
             
-        sys.stdout.write(f"\r{self.prefix} |{bar}| {int(progress*100)}% {current}/{self.total} {eta_str}")
+        sys.stdout.write(output)
         sys.stdout.flush()
         
     def finish(self) -> None:
         elapsed = time.time() - self.start_time
-        sys.stdout.write(f"\r{self.prefix} |{'█' * self.length}| 100% {self.total}/{self.total} Complete in {timedelta(seconds=int(elapsed))}")
-        sys.stdout.write("\n") 
+        output = f"\r{self.prefix} |{'█' * self.length}| 100% {self.total}/{self.total} Complete in {timedelta(seconds=int(elapsed))}"
+        
+        # Add padding and newline
+        terminal_width = self._get_terminal_width()
+        if terminal_width > 0:
+            padding = ' ' * max(0, terminal_width - len(output) - 5)
+            output += padding
+            
+        sys.stdout.write(output + "\n")
         sys.stdout.flush()
+    
+    def _get_terminal_width(self) -> int:
+        """Get terminal width safely"""
+        try:
+            import os
+            terminal_size = os.get_terminal_size()
+            return terminal_size.columns
+        except (AttributeError, OSError, ImportError):
+            return 80  # Default fallback width
 
 
 class ExchangeInterface:
@@ -85,11 +109,6 @@ class CandleDataDownloader:
         self.config = config
         self.exchange = ExchangeInterface(config.exchange_name)
         self.trading_pairs: List[str] = []
-        self.logger = LoggerManager.setup_logger(
-            f"{__name__}.CandleDataDownloader",
-            self.config.log_to_file,
-            'candle_data_downloader.log'
-        )
 
     def fetch_and_rank_pairs_by_volume(self, days: int = 365, limit: int = 100) -> List[str]:
         end_time = datetime.now()
@@ -114,11 +133,9 @@ class CandleDataDownloader:
                         average_volume = AverageVolumeCalculator.calculate(close_prices, volumes)
                         volume_ranked_pairs[symbol] = average_volume
                     else:
-                        self.logger.info(
-                            f"No data returned for {symbol} on {self.exchange.exchange.id}"
-                        )
+                        print(f"No data returned for {symbol} on {self.exchange.exchange.id}")
                 except Exception as e:
-                    self.logger.error(f"Failed to fetch or calculate volume for {symbol}: {e}")
+                    print(f"Failed to fetch or calculate volume for {symbol}: {e}")
 
         most_traded_pairs = sorted(
             volume_ranked_pairs,
@@ -151,8 +168,7 @@ class CandleDataDownloader:
                     end_time=self.config.end_time,
                     batch_size=self.config.batch_size,
                     output_directory=self.config.output_directory,
-                    output_file=self.config.output_file,
-                    log_to_file=self.config.log_to_file
+                    output_file=self.config.output_file
                 )
                 downloader.download_candles()
 
@@ -161,7 +177,7 @@ class CandleDownloader:
     def __init__(self, exchange_interface: ExchangeInterface, pair_name: str, timeframe: str,
                  start_time: str, end_time: Optional[str] = None, batch_size: int = 1000,
                  output_directory: str = './csv_ohlcv', output_file: Optional[str] = None,
-                 log_to_file: bool = False, buffer_size: int = 10000):
+                 buffer_size: int = 10000):
 
         self.exchange = exchange_interface
         self.pair_name = pair_name
@@ -174,12 +190,8 @@ class CandleDownloader:
         self.total_batches = 0
 
         self.output_file = output_file or self._generate_output_filename(output_directory)
-        self.data_manager = DataManager(self.output_file)
-        self.logger = LoggerManager.setup_logger(
-            f"{__name__}.{self.pair_name}.{self.timeframe}",
-            log_to_file,
-            f'candle_downloader_{self.pair_name}_{self.timeframe}.log' if log_to_file else None
-        )
+        # Set quiet mode to true during progress bar display
+        self.data_manager = DataManager(self.output_file, quiet=True)
         self._validate_inputs()
 
     def _generate_output_filename(self, output_directory: str) -> str:
@@ -201,22 +213,18 @@ class CandleDownloader:
     def download_candles(self):
         try:
             start_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            self.logger.info(
-                f"Starting download for {self.pair_name} ({self.timeframe}) at {start_time}"
-            )
+            print(f"Starting download for {self.pair_name} ({self.timeframe}) at {start_time}")
             self._download_new_data()
             
             if self.total_candles > 0:
                 avg_candles_per_batch = self.total_candles / self.total_batches
-                self.logger.info(
-                    f"Download completed for {self.pair_name} ({self.timeframe}). "
-                    f"Total candles: {self.total_candles}, "
-                    f"Total batches: {self.total_batches}, "
-                    f"Average candles per batch: {int(avg_candles_per_batch)}"
-                )
+                print(f"Download completed for {self.pair_name} ({self.timeframe}). "
+                      f"Total candles: {self.total_candles}, "
+                      f"Total batches: {self.total_batches}, "
+                      f"Average candles per batch: {int(avg_candles_per_batch)}")
             return True
         except Exception as e:
-            self.logger.error(f"Error downloading candles: {str(e)}")
+            print(f"Error downloading candles: {str(e)}")
             return False
 
     def _download_new_data(self):
@@ -224,9 +232,7 @@ class CandleDownloader:
         target_timestamp = self.end_time if self.end_time else TimeframeManager.get_current_timestamp(self.timeframe)
 
         if last_timestamp >= target_timestamp:
-            self.logger.info(
-                f"Data for {self.pair_name} {self.timeframe} is up to date. Skipping download."
-            )
+            print(f"Data for {self.pair_name} {self.timeframe} is up to date. Skipping download.")
             return
 
         start_time = last_timestamp + (
@@ -241,29 +247,22 @@ class CandleDownloader:
               f"{datetime.fromtimestamp(start_time/1000).strftime('%Y-%m-%d %H:%M:%S')} "
               f"to {datetime.fromtimestamp(target_timestamp/1000).strftime('%Y-%m-%d %H:%M:%S')}")
               
-        self.logger.info(
-            f"Starting download from {datetime.fromtimestamp(start_time/1000).strftime('%Y-%m-%d %H:%M:%S')} "
-            f"to {datetime.fromtimestamp(target_timestamp/1000).strftime('%Y-%m-%d %H:%M:%S')}. "
-            f"Estimated batches to download: {estimated_total_batches}"
-        )
+        print(f"Starting download from {datetime.fromtimestamp(start_time/1000).strftime('%Y-%m-%d %H:%M:%S')} "
+              f"to {datetime.fromtimestamp(target_timestamp/1000).strftime('%Y-%m-%d %H:%M:%S')}. "
+              f"Estimated batches to download: {estimated_total_batches}")
         
         progress = ProgressBar(
             estimated_total_batches, 
             prefix=f"Downloading {self.pair_name} ({self.timeframe})"
         )
-
-        logger_level = self.logger.level
-        console_handlers = []
-
-        for handler in self.logger.handlers:
-            if isinstance(handler, logging.StreamHandler) and not isinstance(handler, logging.FileHandler):
-                console_handlers.append(handler)
-                handler.setLevel(logging.CRITICAL)
         
         retry_count = 0
         max_retries = 5
         
         try:
+            # Save original stdout to restore it later if needed
+            original_stdout = sys.stdout
+            
             while start_time < target_timestamp:
                 try:
                     ohlcvs = self.exchange.fetch_ohlcv(
@@ -272,9 +271,7 @@ class CandleDownloader:
                     )
 
                     if not ohlcvs:
-                        self.logger.error(
-                            f"Failed to fetch {self.pair_name}, timeframe: {self.timeframe}"
-                        )
+                        print(f"Failed to fetch {self.pair_name}, timeframe: {self.timeframe}")
                         break
 
                     if self.end_time:
@@ -287,7 +284,16 @@ class CandleDownloader:
                     self.data_manager.data_buffer.extend(ohlcvs)
 
                     if len(self.data_manager.data_buffer) >= self.buffer_size:
+                        # Temporarily redirect stdout to suppress any potential output
+                        # Just clear the line, but don't print anything
+                        sys.stdout.write("\r\033[K")
+                        sys.stdout.flush()
+                        
+                        # Buffer writing (should be silent with quiet=True)
                         self.data_manager.write_buffer()
+                        
+                        # Update progress bar after buffer is written
+                        progress.update(self.total_batches)
 
                     self.total_candles += len(ohlcvs)
                     self.total_batches += 1
@@ -295,11 +301,10 @@ class CandleDownloader:
                     progress.update(self.total_batches)
                     
                     current_time = datetime.fromtimestamp(ohlcvs[-1][0]/1000).strftime('%Y-%m-%d %H:%M:%S')
-                    self.logger.info(
-                        f"Batch {self.total_batches}/{estimated_total_batches} - "
-                        f"Downloaded {len(ohlcvs)} candles for {self.pair_name} "
-                        f"(timeframe: {self.timeframe}). Latest candle time: {current_time}"
-                    )
+                    # We're not logging but can optionally display details
+                    # print(f"Batch {self.total_batches}/{estimated_total_batches} - "
+                    #       f"Downloaded {len(ohlcvs)} candles for {self.pair_name} "
+                    #       f"(timeframe: {self.timeframe}). Latest candle time: {current_time}")
 
                     start_time = ohlcvs[-1][0] + timeframe_ms
                     retry_count = 0
@@ -308,14 +313,13 @@ class CandleDownloader:
                     retry_count += 1
                     wait_time = min(60 * retry_count, 300)
                     
-                    # Clear current line and show error
-                    sys.stdout.write("\r" + " " * 100 + "\r")
+                    # Clear line completely before printing message
+                    sys.stdout.write("\r\033[K")
+                    sys.stdout.flush()
                     print(f"Rate limit exceeded. Retrying in {wait_time} seconds... (Attempt {retry_count}/{max_retries})")
                     
-                    self.logger.warning(f"Rate limit exceeded: {e}. Retrying in {wait_time} seconds... (Attempt {retry_count}/{max_retries})")
-                    
                     if retry_count >= max_retries:
-                        self.logger.error(f"Maximum retries reached. Skipping to next timeframe.")
+                        print(f"Maximum retries reached. Skipping to next timeframe.")
                         break
                         
                     time.sleep(wait_time)
@@ -323,17 +327,16 @@ class CandleDownloader:
                     continue
                     
                 except ccxt.BaseError as e:
+                    # Use the same approach for other error handlers
+                    sys.stdout.write("\r\033[K")
+                    sys.stdout.flush()
+                    print(f"Exchange error occurred: {str(e)[:50]}... Retrying in {wait_time} seconds...")
+                    
                     retry_count += 1
                     wait_time = min(60 * retry_count, 300)
                     
-                    # Clear current line and show error
-                    sys.stdout.write("\r" + " " * 100 + "\r")
-                    print(f"Exchange error occurred: {str(e)[:50]}... Retrying in {wait_time} seconds...")
-                    
-                    self.logger.error(f"Exception occurred: {e}. Retrying in {wait_time} seconds... (Attempt {retry_count}/{max_retries})")
-                    
                     if retry_count >= max_retries:
-                        self.logger.error(f"Maximum retries reached. Skipping to next timeframe.")
+                        print(f"Maximum retries reached. Skipping to next timeframe.")
                         break
                     
                     time.sleep(wait_time)
@@ -341,23 +344,24 @@ class CandleDownloader:
                     continue
                     
                 except Exception as e:
-                    # Clear current line and show error
-                    sys.stdout.write("\r" + " " * 100 + "\r")
+                    sys.stdout.write("\r\033[K")
+                    sys.stdout.flush()
                     print(f"Unexpected error: {str(e)[:50]}... Skipping to next timeframe.")
-                    
-                    self.logger.error(f"Unexpected error: {str(e)}. Skipping to next timeframe.")
                     break
 
+            # Ensure progress bar is properly finished
             progress.finish()
             
+            # Make sure we're at the start of a new line after the progress bar
+            sys.stdout.write("\n")
+            sys.stdout.flush()
+            
+            # After progress bar is complete, we can print buffer write info
             if self.data_manager.data_buffer:
                 self.data_manager.write_buffer()
-
+            
             if self.total_candles == 0:
                 print(f"No new data downloaded for {self.pair_name}, timeframe: {self.timeframe}")
-                self.logger.info(
-                    f"No new data downloaded for {self.pair_name}, timeframe: {self.timeframe}"
-                )
             else:
                 completion_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 total_msg = (
@@ -365,14 +369,8 @@ class CandleDownloader:
                     f'Batches: {self.total_batches}/{estimated_total_batches}'
                 )
                 print(f"\n{total_msg}")
-                
-                self.logger.info(
-                    f'Download complete at {completion_time}. '
-                    f'Total new candles: {self.total_candles}, '
-                    f'Total batches: {self.total_batches}/{estimated_total_batches}, '
-                    f'Output file: {self.output_file}'
-                )
+                print(f'Download complete at {completion_time}. Output file: {self.output_file}')
         finally:
-            # Restore console handlers' log levels
-            for handler in console_handlers:
-                handler.setLevel(logger_level)
+            # Ensure we have a clean slate for the next operation
+            sys.stdout.write("\n")
+            sys.stdout.flush()

@@ -1,21 +1,22 @@
 import os
 from typing import List, Any, Dict
 import pandas as pd
-import logging
+import sys
 
 
 class DataManager:
-    def __init__(self, output_file: str, logger: logging.Logger = None):
+    def __init__(self, output_file: str, quiet: bool = False):
         self.output_file = output_file
         self.data_buffer: List[Any] = []
-        self.logger = logger or logging.getLogger(__name__)
+        self.quiet = quiet
         self._ensure_directory_exists()
 
     def _ensure_directory_exists(self) -> None:
         output_dir = os.path.dirname(self.output_file)
         if output_dir and not os.path.exists(output_dir):
             os.makedirs(output_dir, exist_ok=True)
-            self.logger.info(f"Created output directory: {output_dir}")
+            if not self.quiet:
+                print(f"Created output directory: {output_dir}")
 
     def get_last_timestamp(self) -> int:
         try:
@@ -27,10 +28,10 @@ class DataManager:
                 return 0
             return int(df['timestamp'].iloc[-1])
         except (FileNotFoundError, pd.errors.EmptyDataError, pd.errors.ParserError) as e:
-            self.logger.warning(f"Error reading existing file {self.output_file}: {str(e)}")
+            print(f"Error reading existing file {self.output_file}: {str(e)}")
             return 0
         except Exception as e:
-            self.logger.error(f"Unexpected error reading {self.output_file}: {str(e)}")
+            print(f"Unexpected error reading {self.output_file}: {str(e)}")
             return 0
 
     def write_buffer(self) -> None:
@@ -47,7 +48,13 @@ class DataManager:
             file_exists = os.path.exists(self.output_file) and os.path.getsize(self.output_file) > 0
 
             df.to_csv(self.output_file, mode='a', index=False, header=not file_exists)
-            self.logger.debug(f"Wrote {len(df)} records to {self.output_file}")
+            
+            # Only print if not in quiet mode
+            if not self.quiet:
+                print(f"Wrote {len(df)} records to {self.output_file}")
+                
             self.data_buffer.clear()
         except Exception as e:
-            self.logger.error(f"Error writing to {self.output_file}: {str(e)}")
+            # Even in quiet mode, we should print errors
+            sys.stdout.write("\r\033[K")  # Clear the current line
+            print(f"Error writing to {self.output_file}: {str(e)}")

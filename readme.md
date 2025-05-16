@@ -1,22 +1,26 @@
 # Candle Downloader
 
 ## Overview
-Candle Downloader is a Python application designed to download OHLCV (Open, High, Low, Close, Volume) data from multiple cryptocurrency exchanges. The application validates the data and fills in gaps where necessary.
+Candle Downloader is a Python application designed to download OHLCV (Open, High, Low, Close, Volume) data from multiple cryptocurrency exchanges. The application features advanced validation capabilities, integrity checks, gap detection and filling, with an elegant terminal interface for monitoring download progress.
 
 ## Features
 - Downloads historical candlestick data from cryptocurrency exchanges
 - Supports multiple timeframes from 1 minute to 1 week
-- Data validation and gap detection with optional filling
+- Clean terminal interface with progress bars and status updates
+- Data validation with integrity checks and gap detection
+- Automatic handling of file corruption from interrupted downloads
 - Volume-based trading pair selection and ranking
 - Smart filtering of stablecoin pairs
+- Command-line arguments for flexible operation
 - Efficient data buffering and CSV file management
 - Comprehensive logging system
-- Rate limiting protection and automatic retry mechanism
+- Rate limiting protection with exponential backoff retry mechanism
 - Configurable batch size and buffer management
 - Flexible output file naming
 
 ## Supported Exchanges
 - Application tested on binance and binanceus. Other exchanges may work as well.
+- Multi-exchange gap filling supports 30+ exchanges for data validation and repair.
 
 ## Project Structure
 - **src/**: Contains the main source code for the application.
@@ -26,7 +30,58 @@ Candle Downloader is a Python application designed to download OHLCV (Open, High
   - `logger_manager.py`: Handles logging with customizable formats
   - `timeframe_manager.py`: Manages different timeframes and timestamp calculations
 - **utils/**: Utility functions and helper classes
-  - Various utility modules for data processing
+  - `average_quote_vol.py`: Volume calculations for ranking trading pairs
+- **Main scripts**:
+  - `main.py`: Primary script for downloading data
+  - `validate.py`: Tool for validating and repairing data files
+
+## Command-Line Usage
+
+### Main Application
+```bash
+python main.py [--config CONFIG] [--pairs PAIRS] [--timeframes TIMEFRAMES] [--most-traded] [--days DAYS] [--limit LIMIT]
+```
+
+#### Arguments
+- `--config`, `-c`: Path to configuration file (default: config.cfg)
+- `--pairs`, `-p`: Comma-separated list of trading pairs (overrides config)
+- `--timeframes`, `-t`: Comma-separated list of timeframes (overrides config)
+- `--most-traded`, `-m`: Download most traded pairs by volume
+- `--days`, `-d`: Days to look back for most traded pairs (default: 365)
+- `--limit`, `-l`: Limit number of pairs for most traded (default: 100)
+
+### Validation Tool
+```bash
+python validate.py [--directory DIR] [--timeframe TIMEFRAME] [--pair PAIR] [--fill-gaps] [--integrity-only]
+```
+
+#### Arguments
+- `--directory`, `-d`: Directory containing CSV files (default: './csv_ohlcv')
+- `--timeframe`, `-t`: Specific timeframe to validate (e.g., '1h', '4h')
+- `--pair`, `-p`: Trading pair to validate (e.g., 'BTC_USDT')
+- `--fill-gaps`, `-f`: Attempt to fill gaps using data from other exchanges
+- `--integrity-only`, `-i`: Only check file integrity without validating timeframes
+
+### Examples
+```bash
+# Download using config settings
+python main.py
+
+# Download specific pairs and timeframes
+python main.py --pairs BTC,ETH --timeframes 1h,4h
+
+# Download most traded pairs
+python main.py --most-traded --limit 50
+
+# Validate all files in default directory
+python validate.py
+
+# Check only file integrity (corruption)
+python validate.py --integrity-only
+
+# Validate and fill gaps for specific files
+python validate.py --directory ./my_data --timeframe 4h --pair ETH_USDT --fill-gaps
+```
 
 ## Logging System
 The application provides a comprehensive logging system:
@@ -73,39 +128,29 @@ The application stores data in CSV format with the following features:
 - Data integrity checks
 - Efficient sequential writing and random access
 
-## Data Validation
+## Data Validation and Integrity
 
-The application includes a separate validation script (`validate.py`) for verifying downloaded data and filling gaps:
+The application includes robust validation capabilities:
 
-### Usage
-```bash
-python validate.py [-h] [--directory DIRECTORY] [--timeframe {1m,3m,5m,15m,30m,1h,2h,3h,4h,6h,12h,1d,1w}] [--pair PAIR] [--fill-gaps]
-```
+### Timeframe Validation
+- Ensures timestamps are correctly spaced according to timeframe
+- Identifies gaps in the data sequence
+- Verifies that candle intervals match the expected timeframe
 
-### Arguments
-- `--directory`, `-d`: Directory containing CSV files (default: './csv_ohlcv')
-- `--timeframe`, `-t`: Specific timeframe to validate (e.g., '1h', '4h')
-- `--pair`, `-p`: Trading pair to validate (e.g., 'BTC_USDT')
-- `--fill-gaps`, `-f`: Optional flag to attempt gap filling using other exchanges
+### File Integrity Checks
+- Detects corruption caused by interrupted downloads (CTRL+C)
+- Validates CSV file structure and format
+- Checks for missing or empty files
+- Identifies NaN values in data (possible truncation)
+- Verifies data consistency (high >= low, close within range)
+- Checks timestamp ordering
+- Examines file endings for proper completion
 
-### Examples
-```bash
-# Validate all files in default directory
-python validate.py
-
-# Validate specific timeframe and pair
-python validate.py --timeframe 1h --pair BTC_USDT
-
-# Validate and fill gaps for specific files
-python validate.py --directory ./my_data --timeframe 4h --pair ETH_USDT --fill-gaps
-```
-
-### Features
-- Validates CSV file format and structure
-- Checks data types and timestamp sequences
-- Identifies gaps in the data
-- Can attempt to fill gaps using data from other exchanges
-- Provides detailed validation reports
+### Gap Filling
+- Cross-exchange verification and data retrieval
+- Smart pair name matching across different exchanges
+- Coverage percentage calculation for gap filling quality
+- Adaptive threshold based on data age
 
 ## Configuration Guide
 
@@ -119,36 +164,28 @@ exchange_name = binance  # Currently, kucoin is not working due to API issues
 
 # Trading Pair Selection
 all_pairs = True  # Set to True to download all available trading pairs
-ase_symbols = ACM,ADA,ALGO,ATOM,AVAX,BCC,BCH,BNB,DOGE,DOT,EOS,ETC,ETH,FIL,FTM,GALA,ICX,INJ,IOTA,LINK # Example usage of multiple symbols
+base_symbols = BTC,ETH,BNB  # Example symbols, used when all_pairs=False
 quote_symbols = USDT
 
 # Time Configuration
-# Comma-separated list of timeframes like 1h, 1d, etc.
-timeframes = 5m  # Currently set to 5m, but can be changed to other timeframes
+timeframes = 5m  # Comma-separated list of timeframes
 start_time = 2015-01-01T00:00:00Z
-end_time = 2022-12-31T23:59:59Z  # Set to a specific end time, but can be left empty for None
+end_time =  # Leave empty for current time
 
 # Download Settings
 batch_size = 1000
 output_directory = ./csv_ohlcv
-output_file =  # Leave empty for None
+output_file =  # Leave empty for automatic filename generation
 
 # Logging Configuration
 enable_logging = False
 ```
 
-## Running the Application
-To run the application:
-```bash
-python main.py
-```
-This will read the configuration from `config.cfg` and download the candle data according to your settings.
-
 ## Troubleshooting
 
 ### Common Issues
 1. **Rate Limit Exceeded**
-   - The application will automatically pause and retry after 60 seconds
+   - The application will automatically pause and retry with exponential backoff
    - Consider reducing batch_size in config
    - Check exchange API limits
 
@@ -159,10 +196,15 @@ This will read the configuration from `config.cfg` and download the candle data 
 
 3. **Data Gaps**
    - Use validation tools to identify gaps
+   - Run with `--fill-gaps` to attempt repair
    - Check exchange maintenance windows
-   - Consider cross-exchange validation
 
-4. **Memory Usage**
+4. **File Corruption**
+   - Use `python validate.py --integrity-only` to check for corrupted files
+   - Follow the suggested repair steps for each type of corruption
+   - For severe corruption, redownload the affected data
+
+5. **Memory Usage**
    - Adjust buffer_size in config
    - Monitor system resources
    - Consider batch processing for large datasets
@@ -172,6 +214,7 @@ This will read the configuration from `config.cfg` and download the candle data 
 - `Invalid timeframe`: Check supported timeframes for exchange
 - `Rate limit exceeded`: Temporary pause, automatic retry
 - `Failed to fetch`: Check exchange availability
+- `File integrity issues`: Run validation with integrity check
 
 ## Requirements
 Ensure you have the necessary dependencies installed:

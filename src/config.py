@@ -53,7 +53,3 @@ class Config:
     @property
     def output_file(self) -> Optional[str]:
         return self.cfg.get('DEFAULT', 'output_file') or None
-
-    @property
-    def log_to_file(self) -> bool:
-        return self.cfg.getboolean('DEFAULT', 'enable_logging')

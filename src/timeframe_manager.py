@@ -2,9 +2,6 @@ from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Any
 import pandas as pd
 
-from src.logger_manager import LoggerManager
-from src.config import Config
-
 
 class TimeframeManager:
     TIMEFRAME_TO_SECONDS: Dict[str, int] = {
@@ -35,12 +32,6 @@ class TimeframeManager:
         self.timeframe = timeframe
         self.expected_interval = self.TIMEFRAME_TO_SECONDS[timeframe] * 1000
         self.df = pd.read_csv(csv_file)
-        self.config = Config()
-        self.logger = LoggerManager.setup_logger(
-            f"{__name__}.TimeframeHandler",
-            self.config.log_to_file,
-            f'timeframe_handler_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log'
-        )
 
     def validate(self) -> Dict[str, Any]:
         timestamps = self.df['timestamp'].values
@@ -78,33 +69,32 @@ class TimeframeManager:
         return result
 
     def _log_results(self, result: Dict[str, Any]) -> None:
-        self.logger.info(f"Validation results for {self.csv_file}:")
-        self.logger.info(f"Timeframe: {self.timeframe}")
-        self.logger.info(f"Total records: {result['total_records']}")
-        self.logger.info(f"Gaps found: {result['gaps_count']}")
-        self.logger.info(f"Invalid intervals: {result['invalid_intervals_count']}")
+        # Replace logging with print statements
+        print(f"Validation results for {self.csv_file}:")
+        print(f"Timeframe: {self.timeframe}")
+        print(f"Total records: {result['total_records']}")
+        print(f"Gaps found: {result['gaps_count']}")
+        print(f"Invalid intervals: {result['invalid_intervals_count']}")
 
         if result['gaps']:
-            self.logger.warning("Gaps detected:")
-            for gap in result['gaps']:
+            print("Gaps detected:")
+            for gap in result['gaps'][:5]:  # Show just first 5 to avoid console flood
                 start_time = datetime.fromtimestamp(gap['start'] / 1000)
                 end_time = datetime.fromtimestamp(gap['end'] / 1000)
                 gap_td = timedelta(milliseconds=gap['gap_size'])
-                self.logger.warning(
-                    f"Gap from {start_time} ({gap['start']}) to "
-                    f"{end_time} ({gap['end']}) "
-                    f"(size: {gap_td})"
-                )
+                print(f"Gap from {start_time} to {end_time} (size: {gap_td})")
+            
+            if len(result['gaps']) > 5:
+                print(f"... and {len(result['gaps']) - 5} more gaps")
 
         if result['invalid_intervals']:
-            self.logger.warning("Invalid intervals detected:")
-            for interval in result['invalid_intervals']:
+            print("Invalid intervals detected:")
+            for interval in result['invalid_intervals'][:5]:  # Show just first 5
                 time = datetime.fromtimestamp(interval['timestamp'] / 1000)
                 interval_td = timedelta(milliseconds=interval['interval'])
-                self.logger.warning(
-                    f"Position {interval['position']}: {time} "
-                    f"({interval['timestamp']}) "
-                    f"(interval: {interval_td})"
-                )
+                print(f"Position {interval['position']}: {time} (interval: {interval_td})")
+                
+            if len(result['invalid_intervals']) > 5:
+                print(f"... and {len(result['invalid_intervals']) - 5} more invalid intervals")
 
-        self.logger.info(f"Validation {'passed' if result['is_valid'] else 'failed'}")
+        print(f"Validation {'passed' if result['is_valid'] else 'failed'}")

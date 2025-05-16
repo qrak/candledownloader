@@ -1,5 +1,4 @@
 import argparse
-import logging
 import os
 import time
 from collections import defaultdict
@@ -10,8 +9,7 @@ import ccxt
 import pandas as pd
 
 from src.timeframe_manager import TimeframeManager
-from src.logger_manager import LoggerManager
-from src.config import Config
+
 
 class MultiExchangeGapFiller:
     def __init__(self) -> None:
@@ -79,18 +77,6 @@ class ValidationRunner:
         self.csv_files = self._get_csv_files()
         self.validation_results: Dict[str, Dict] = {}
         self.gap_filler = MultiExchangeGapFiller()
-        self.config = Config()
-        self.logger = self._setup_logger()
-
-    def _setup_logger(self) -> logging.Logger:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        log_file = f'validation_runner_{timestamp}.log'
-
-        return LoggerManager.setup_logger(
-            f"{__name__}.ValidationRunner",
-            self.config.log_to_file,
-            log_file
-        )
 
     def _get_csv_files(self) -> List[str]:
         all_files = os.listdir(self.directory)
@@ -123,7 +109,7 @@ class ValidationRunner:
                 # Fallback to original method
                 return f"{name_parts[0]}_{name_parts[1]}"
         except Exception as e:
-            self.logger.warning(f"Error extracting pair name from {filename}: {str(e)}")
+            print(f"Error extracting pair name from {filename}: {str(e)}")
             # Fallback to original method
             parts = filename.split('_')
             return f"{parts[0]}_{parts[1]}" if len(parts) > 1 else parts[0]
@@ -273,12 +259,12 @@ class ValidationRunner:
 
     def fill_gaps(self) -> None:
         if not self.validation_results:
-            self.logger.warning("No validation results available. Run validation first.")
+            print("No validation results available. Run validation first.")
             return
 
         for file, result in self.validation_results.items():
             if result['gaps_count'] > 0:
-                self.logger.info(f"\nAttempting to fill gaps in {file}")
+                print(f"\nAttempting to fill gaps in {file}")
                 pair = result['pair'].replace('_', '/')
                 timeframe = result['timeframe']
 
@@ -304,9 +290,9 @@ class ValidationRunner:
 
             coverage_threshold = 50 if gap_start_year < 2020 else 80
 
-            self.logger.info(f"\nAttempting to fill gap from {datetime.fromtimestamp(gap['start'] / 1000)} "
-                           f"to {datetime.fromtimestamp(gap['end'] / 1000)} "
-                           f"(need {num_candles} candles)")
+            print(f"\nAttempting to fill gap from {datetime.fromtimestamp(gap['start'] / 1000)} "
+                  f"to {datetime.fromtimestamp(gap['end'] / 1000)} "
+                  f"(need {num_candles} candles)")
 
             for exchange_name in exchanges:
                 try:
@@ -321,7 +307,7 @@ class ValidationRunner:
                     
                     for pair_variant in pair_variations:
                         try:
-                            self.logger.info(f"Trying to fill gap using {exchange_name} with pair {pair_variant}")
+                            print(f"Trying to fill gap using {exchange_name} with pair {pair_variant}")
                             
                             # Check if pair exists on exchange
                             markets = exchange.load_markets()
@@ -341,11 +327,11 @@ class ValidationRunner:
                                 used_pair = pair_variant
                                 break
                         except Exception as e:
-                            self.logger.debug(f"Pair {pair_variant} not available on {exchange_name}: {str(e)}")
+                            # Just continue without logging
                             continue
                     
                     if not used_pair:
-                        self.logger.warning(f"No valid pair format found for {pair} on {exchange_name}")
+                        print(f"No valid pair format found for {pair} on {exchange_name}")
                         continue
                         
                     current_start = gap['start']
@@ -366,7 +352,7 @@ class ValidationRunner:
                             )
 
                             if not ohlcv:
-                                self.logger.warning(f"No data returned from {exchange_name}")
+                                print(f"No data returned from {exchange_name}")
                                 remaining_attempts -= 1
                                 time.sleep(2)
                                 continue
@@ -386,27 +372,28 @@ class ValidationRunner:
                             time.sleep(exchange.rateLimit / 1000 * 1.5)
 
                         except ccxt.RateLimitExceeded:
-                            self.logger.warning(f"Rate limit exceeded for {exchange_name}, waiting 60 seconds")
+                            print(f"Rate limit exceeded for {exchange_name}, waiting 60 seconds")
                             time.sleep(60)
                             remaining_attempts -= 1
                             continue
                         except Exception as e:
-                            self.logger.error(f"Error fetching chunk from {exchange_name}: {str(e)}")
+                            print(f"Error fetching chunk from {exchange_name}: {str(e)}")
                             remaining_attempts -= 1
                             time.sleep(5)
                             continue
 
                     if exchange_candles:
-                        self._process_gap_candles(file_path, exchange_name, exchange_candles, gap, interval_ms, coverage_threshold)
-                        gap_filled = True
-                        break
+                        success = self._process_gap_candles(file_path, exchange_name, exchange_candles, gap, interval_ms, coverage_threshold)
+                        if success:
+                            gap_filled = True
+                            break
 
                 except Exception as e:
-                    self.logger.error(f"Error with exchange {exchange_name}: {str(e)}")
+                    print(f"Error with exchange {exchange_name}: {str(e)}")
                     continue
 
             if not gap_filled:
-                self.logger.warning("Failed to fill gap with any exchange")
+                print("Failed to fill gap with any exchange")
                 
     def _process_gap_candles(self, file_path: str, exchange_name: str, exchange_candles: List, 
                             gap: Dict[str, int], interval_ms: int, coverage_threshold: float) -> bool:
@@ -427,15 +414,15 @@ class ValidationRunner:
             missing_timestamps = expected_timestamps - actual_timestamps
             coverage = (len(expected_timestamps) - len(missing_timestamps)) / len(expected_timestamps) * 100
 
-            self.logger.info(f"Gap coverage from {exchange_name}: {coverage:.2f}% ({len(missing_timestamps)} missing candles)")
+            print(f"Gap coverage from {exchange_name}: {coverage:.2f}% ({len(missing_timestamps)} missing candles)")
 
             if coverage >= coverage_threshold:
                 self._update_csv_with_gap_data(file_path, df.values.tolist())
-                self.logger.info(f"Successfully filled gap with {coverage:.2f}% coverage using {exchange_name}")
+                print(f"Successfully filled gap with {coverage:.2f}% coverage using {exchange_name}")
                 return True
             return False
         except Exception as e:
-            self.logger.error(f"Error processing gap candles: {str(e)}")
+            print(f"Error processing gap candles: {str(e)}")
             return False
                 
     def _get_pair_variations(self, pair: str) -> List[str]:
@@ -490,17 +477,35 @@ class ValidationRunner:
         else:
             print(f"\n⚠️ Found {len(corrupted_files)} corrupted files out of {len(self.csv_files)} scanned files.")
             
-            # Log details for reference
-            self.logger.warning(f"Corrupted files summary:")
-            for file, issues in corrupted_files:
-                self.logger.warning(f"File: {file}")
-                for issue in issues:
-                    self.logger.warning(f"  - {issue}")
-            
             print("\nSuggested repair steps:")
             print("1. For empty or severely corrupted files: redownload the data")
             print("2. For files with NaN values or out-of-order timestamps: run validation with --fill-gaps")
             print("3. For files with minor corruption: try opening in pandas and rewriting with df.to_csv()")
+
+    def _update_csv_with_gap_data(self, file_path: str, new_data: List[List[Any]]) -> None:
+        """
+        Updates the CSV file with new data retrieved to fill gaps
+        """
+        try:
+            df = pd.read_csv(file_path)
+            new_df = pd.DataFrame(
+                new_data,
+                columns=['timestamp', 'open', 'high', 'low', 'close', 'volume']
+            )
+
+            combined_df = pd.concat([df, new_df])
+            combined_df = combined_df.drop_duplicates(subset=['timestamp'])
+            combined_df = combined_df.sort_values('timestamp')
+
+            # Back up the original file before overwriting
+            backup_path = f"{file_path}.bak"
+            print(f"Creating backup of original file at {backup_path}")
+            df.to_csv(backup_path, index=False)
+
+            combined_df.to_csv(file_path, index=False)
+            print(f"Updated {file_path} with {len(new_df)} candles to fill gaps")
+        except Exception as e:
+            print(f"Error updating file with gap data: {str(e)}")
 
 
 if __name__ == "__main__":
