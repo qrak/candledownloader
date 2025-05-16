@@ -1,5 +1,6 @@
 import argparse
-from src.candledownloader import CandleDataDownloader, Config
+from src.candle_data_downloader import CandleDataDownloader
+from src.config import Config
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description="Download OHLCV candle data from cryptocurrency exchanges")
